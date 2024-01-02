@@ -1,1 +1,0 @@
-"use strict";(self.webpackChunkdocs_website=self.webpackChunkdocs_website||[]).push([[590],{7638:e=>{e.exports=JSON.parse('{"permalink":"/automation-suite-support-tools/blog","page":1,"postsPerPage":10,"totalPages":1,"totalCount":4,"blogDescription":"Blog","blogTitle":"Blog"}')}}]);

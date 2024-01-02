@@ -1,0 +1,1 @@
+"use strict";(self.webpackChunkdocs_website=self.webpackChunkdocs_website||[]).push([[2535],{5641:e=>{e.exports=JSON.parse('{"title":"Recent posts","items":[{"title":"Deploy 3rd Party Security Scanners in AS","permalink":"/automation-suite-support-tools/blog/Deploy 3rd Party Security Scanners in AS","unlisted":false}]}')}}]);

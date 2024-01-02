@@ -1,0 +1,109 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  annotations:
+  labels:
+    job: uipath-snapshot-cleanup
+  name: lh-snapshot-cleanup
+  namespace: longhorn-system
+spec:
+  concurrencyPolicy: Forbid
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      backoffLimit: 3
+      template:
+        metadata:
+          labels:
+            job: uipath-snapshot-cleanup
+          name: uipath-snapshot-cleanup
+        spec:
+          containers:
+          - command:
+            - sh
+            args:
+            - -ec
+            - |
+              url=$(kubectl get svc -n longhorn-system  longhorn-backend -o json | jq -r '.spec | (.clusterIP|tostring)  + ":" + (.ports[0].port|tostring)')
+              days=-1
+
+              [[ -z "$url" ]] && echo "Missing longhorn URL" && exit 1
+
+              curl -s --connect-timeout 30 ${url}/v1 >> /dev/null || { echo "Unable to connect to longhorn backend"; exit 1; }
+
+               echo "Deleting snapshots older than $days days"
+
+                vols=$( (curl -s -X GET ${url}/v1/volumes |jq -r '.data[].name') )
+
+                function delete_snapshot() {
+                        local vol=$1
+                        local snap=$2
+
+                        [[ -z "$vol" || -z "$snap" ]] && echo "Error: delete_snapshot: Empty argument" && return 1
+                        curl -s -X POST ${url}/v1/volumes/${vol}?action=snapshotDelete -d '{"name": "'$snap'"}'
+                        echo "Snapshot=$snap deleted for volume=$vol"
+                }
+
+                function cleanup_volume() {
+                        local vol=$1
+                        local deleted_snap=0
+
+                        [[ -z "$vol" ]] && echo "Error: cleanup_volume: Empty argument" && return 1
+
+                        # fetch list of snapshot
+                        snaps=$( (curl -s -X POST ${url}/v1/volumes/${vol}?action=snapshotList | jq  -r '.data[] | select(.usercreated==true) | .name' ) )
+                        for i in ${snaps[@]}; do
+                                if [[ $i == "volume-head" ]]; then
+                                        continue
+                                fi
+
+                                snapTime=$(curl -s -X POST ${url}/v1/volumes/${vol}?action=snapshotGet -d '{"name":"'$i'"}' |jq -r '.created')
+                                currentTime=$(date "+%s")
+                                timeDiff=$((($(date -d $snapTime "+%s") - $currentTime) / 86400))
+                                if [[ $timeDiff -lt $days ]]; then
+                                        echo "Ignoring snapshot $i, since it is older than $timeDiff days"
+                                        continue
+                                fi
+
+                                delete_snapshot $vol $i
+                                deleted_snap=$((deleted_snap+1))
+                        done
+
+                        if [[ "$deleted_snap" -gt 0 ]]; then
+                                curl -s -X POST ${url}/v1/volumes/${vol}?action=snapshotPurge >> /dev/null
+                        fi
+
+                }
+
+                for i in ${vols[@]}; do
+                        cleanup_volume $i
+                done
+                exit 0
+            env:
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.namespace
+            image: uipath/sf-k8-utils-rhel:0.9
+            imagePullPolicy: IfNotPresent
+            name: uipath-snapshot-cleanup
+            resources: {}
+            terminationMessagePath: /dev/termination-log
+            terminationMessagePolicy: File
+          dnsPolicy: ClusterFirst
+          priorityClassName: system-cluster-critical
+          restartPolicy: OnFailure
+          schedulerName: default-scheduler
+          securityContext: {}
+          serviceAccount: longhorn-service-account
+          serviceAccountName: longhorn-service-account
+          terminationGracePeriodSeconds: 30
+          tolerations:
+          - effect: NoSchedule
+            key: kubernetes.io/hostname
+            operator: Equal
+            value: server0
+  schedule: '* 11 *  * * '
+  successfulJobsHistoryLimit: 1
+  suspend: false
