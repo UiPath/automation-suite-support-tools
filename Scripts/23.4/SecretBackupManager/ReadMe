@@ -1,0 +1,4 @@
+The SecretBackupManager was created to backup and restore all UiPath specific 
+secrets and config maps that are not managed by ArgoCD.
+
+These represent the things that are unique to that specific instance of a cluster.
