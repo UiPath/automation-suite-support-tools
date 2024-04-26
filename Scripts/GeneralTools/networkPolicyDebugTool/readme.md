@@ -1,7 +1,10 @@
+# Network Policy Tool
 NetworkPolicyTool is a bash script that can be used to debug network policies or apply fixes.
 
-It is mainly used to quickly allow all traffic for debuging.
+It is mainly used to quickly allow all traffic for debugging.
 
+# Usage
+```
 Usage: networkPolicyTool.sh [OPTIONS]
 Options:
     -g | --allowAllTrafficGlobally | -g                  Used to manage a network policy that allows all traffic in all namespaces.
@@ -10,11 +13,16 @@ Options:
     -a | --add                                           Used to add a network policy.      
     -r | --remove                                        Used to remove a network policy.
     -h | --help                                          Display this help message.
+```
+
+## Examples
+```
 Examples:
-    networkPolicyTool.sh --allowAllTrafficGlobally --add
+    networkPolicyTool.sh --allowAllTrafficGlobally --add 
     networkPolicyTool.sh --allowAllTrafficGlobally --remove
     networkPolicyTool.sh --allowAllTrafficInNamespace mynamespace --add
     networkPolicyTool.sh --allowAllTrafficInNamespace mynamespace --remove
     networkPolicyTool.sh --createNetworkPolicy mynetworkpolicy.yaml --add
     networkPolicyTool.sh --createNetworkPolicy mynetworkpolicy.yaml --remove
     networkPolicyTool.sh --help
+```
