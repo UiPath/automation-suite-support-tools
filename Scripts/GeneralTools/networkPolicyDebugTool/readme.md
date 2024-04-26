@@ -41,7 +41,7 @@ Examples:
     networkPolicyTool.sh --help
 ```
 
-## Airflow fix (23.4.X - 23.10.2)
+## Airflow fix (23.4.4 and below and 23.10.1 and below)
 In some version of automation suite, the network policies for airflow would prevent DNS from working correctly.
 
 To fix this run the following command:
