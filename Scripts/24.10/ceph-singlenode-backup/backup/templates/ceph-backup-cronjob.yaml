@@ -1,0 +1,66 @@
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: backup-hook-cronjob
+  namespace: rook-ceph
+spec:
+  schedule: "* */1 * * *"  # This schedules the job every 1 hour
+  concurrencyPolicy: Forbid  # Ensures only one instance of the job runs at a time
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        spec:
+          serviceAccountName: backup-hook-sa
+          priorityClassName: system-node-critical
+          containers:
+            - env:
+              - name: OP
+                value: backup
+              - name: NFS_BUCKET_NAME
+                value: clusterconfig
+              - name: LOG_RETENTION_HOURS
+                value: "8760"
+              - name: DIFF_RETENTION_HOURS
+                value: "8760"
+              image: {{ .Values.image.registry }}/{{ .Values.image.repository }}:{{ .Values.image.tag }}
+              command: ["/bin/bash", "/script/backup-restore-ceph-objectstore.sh"]
+              imagePullPolicy: IfNotPresent
+              name: backup-hook-service
+              resources:
+                limits:
+                  memory: 2Gi
+                requests:
+                  cpu: 100m
+                  memory: 200Mi
+              securityContext:
+                privileged: false
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+              volumeMounts:
+                - name: host-dir-volume
+                  mountPath: /nfs
+                - name: tmp-volume
+                  mountPath: /tmp
+                - name: backup-hook-script-cm
+                  mountPath: /script
+          securityContext:
+            fsGroup: 1000
+            runAsUser: 65534
+            runAsGroup: 65534
+            runAsNonRoot: true
+          restartPolicy: Never  # Job should not restart the pod unless it fails
+          volumes:
+            - name: host-dir-volume
+              hostPath:
+                path: /backup
+                type: Directory
+            - name: tmp-volume
+              emptyDir: {}
+            - name: backup-hook-script-cm
+              configMap:
+                defaultMode: 420
+                name: ceph-backup-restore-script

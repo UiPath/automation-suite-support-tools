@@ -1,0 +1,10 @@
+---
+name: backup-ceph-singlenode
+version: 0.0.1
+apiVersion: v2
+description: "Helm chart for the ceph Backup"
+sources:
+  - https://github.com/UiPath/service-fabric-packaging
+maintainers:
+  - name: UiPath
+    email: sfbr@uipath.com

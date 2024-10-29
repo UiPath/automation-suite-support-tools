@@ -1,0 +1,64 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: restore-objectstore-job
+  namespace: rook-ceph
+  labels:
+    app.kubernetes.io/component: backup-hook-job
+    app.kubernetes.io/part-of: backup-hook
+spec:
+  backoffLimit: 1
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: backup-hook-job
+        app.kubernetes.io/part-of: backup-hook
+      annotations:
+        sidecar.istio.io/inject: "false"
+    spec:
+      serviceAccountName: backup-hook-sa
+      priorityClassName: system-node-critical
+      containers:
+      - name: restore-objectstore-job
+        image: sfbrdevhelmweacr.azurecr.io/uipath/sf-k8-utils-rhel:24.10.0-rc11
+        imagePullPolicy: IfNotPresent
+        command: ["/bin/bash", "/script/backup-restore-ceph-objectstore.sh"]
+        resources:
+          limits:
+            memory: 2Gi
+          requests:
+            cpu: 100m
+            memory: 200Mi
+        securityContext:
+          privileged: false
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          runAsUser: 65534
+          runAsGroup: 65534
+          runAsNonRoot: true
+          capabilities:
+            drop: ["ALL"]
+        env:
+          - name: OP
+            value: restore
+        volumeMounts:
+          - name: host-dir-volume
+            mountPath: /nfs
+          - name: tmp-volume
+            mountPath: /tmp
+          - name: backup-hook-script-cm
+            mountPath: /script
+      securityContext:
+        fsGroup: 9999
+      volumes:
+        - name: host-dir-volume
+          hostPath:
+            path: /backup
+            type: Directory
+        - name: tmp-volume
+          emptyDir: {}
+        - name: backup-hook-script-cm
+          configMap:
+            defaultMode: 420
+            name: ceph-backup-restore-script
+      restartPolicy: Never
