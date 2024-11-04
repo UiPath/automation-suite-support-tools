@@ -12,19 +12,24 @@ Replace <disk-name> with the actual name of your disk (e.g., /dev/sdc).
 ## Ceph Backup: Configuring Hourly Backups
 
 After the disk is partitioned, follow these steps to configure a CronJob that backs up data to the specified disk every hour.
-### Step 1: Navigate to the Backup Directory
+### Step 1: Grant permissions to backup directory so backup pod can write data to it
+```bash
+chown 65534:65534 /backup
+```
+### Step 2: Navigate to the Backup Directory
 ```bash
 cd Scripts/24.10/ceph-singlenode-backup/backup
 ```
-### Step 2: Modify the `values.yaml`
+### Step 3: Modify the `values.yaml`
 
 Edit the `values.yaml` file to configure the container registry according to your setup.
 
-### Step 3: Install the Backup Helm Chart
+### Step 4: Install the Backup Helm Chart
 ```bash
 helm install ceph-backup . -n rook-ceph
 ```
 This will deploy the backup CronJob, which will handle the periodic backup of your Ceph data to the specified disk.
+If you run into error saying `helm` not found, you can use `/opt/UiPathAutomationSuite/UipathInstaller/bin/helm install ceph-backup . -n rook-ceph`
 
 ## Ceph Restore: Restoring Data from Backup
 
@@ -42,7 +47,7 @@ Edit the `image` attribute in the `objectstore-restore-jobs.yaml` file to use th
 ### Step 3: Apply the Restore Job
 
 ```bash
-kubectl apply -f Scripts/24.10/ceph-singlenode-backup/restore/objectstore-restore-jobs.yaml
+kubectl apply -f objectstore-restore-jobs.yaml
 ```
 
 ### Step 4: Monitor the Logs
