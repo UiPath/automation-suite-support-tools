@@ -1,0 +1,5 @@
+---
+image:
+  registry: "sfbrdevhelmweacr.azurecr.io"
+  repository: uipath/sf-k8-utils-rhel
+  tag: "24.10.0-rc11"
