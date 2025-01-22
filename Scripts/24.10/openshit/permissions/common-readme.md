@@ -145,25 +145,6 @@ oc get role -n <namespace> | grep cert-manager
 oc get role -n <namespace> | grep dapr
 ```
 
-## Troubleshooting
-
-### Common Issues
-
-1. **Permission Denied**
-   - Verify cluster admin access
-   - Check namespace permissions
-   - Validate service account existence
-
-2. **Resource Creation Failures**
-   - Check namespace existence
-   - Verify role permissions
-   - Review existing resources
-
-3. **Integration Issues**
-   - Validate Istio installation
-   - Check ArgoCD configuration
-   - Verify namespace labels
-
 ### Resolution Steps
 
 1. **Check Logs**
@@ -182,11 +163,6 @@ oc auth can-i <verb> <resource> -n <namespace>
 oc delete role <role-name> -n <namespace>
 oc delete rolebinding <binding-name> -n <namespace>
 ```
-
-
-## License
-
-[License Information]
 
 ## Additional Resources
 
