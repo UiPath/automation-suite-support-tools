@@ -22,9 +22,10 @@ This collection of scripts automates the setup of required permissions and confi
    - Sets up application and secret management
 
 4. **product-permissions.sh**
-   - Sets up Process Mining permissions
-   - Configures Dapr requirements
-   - Manages product-specific roles
+- Sets up Process Mining and Dapr permissions
+- Supports both dedicated and shared ArgoCD instances
+- Note: Process Mining installation automatically includes Dapr configuration
+
 
 ## Prerequisites
 
@@ -67,7 +68,7 @@ chmod +x *.sh
 
 5. **Configure Product Permissions**
 ```bash
-./product-permissions.sh -n uipath -a argocd -p pm,dapr
+./product-permissions.sh -n uipath -a argocd -p pm
 ```
 
 ## Common Parameters
@@ -96,6 +97,7 @@ chmod +x *.sh
 ./argocd-permissions.sh -n uipath -a argocd
 
 # Step 4: Process Mining Setup
+# Process Mining setup (includes Dapr)
 ./product-permissions.sh -n uipath -a argocd -p pm
 ```
 
@@ -112,7 +114,7 @@ chmod +x *.sh
 ./create-uipathadmin.sh -n uipath
 ./istio-permissions.sh -n uipath -i istio-system
 ./argocd-permissions.sh -n uipath -a openshift-gitops -s -p myproject
-./product-permissions.sh -n uipath -a openshift-gitops -p pm,dapr
+./product-permissions.sh -n uipath -a openshift-gitops -p pm
 ```
 
 ## Verification Steps
@@ -141,8 +143,8 @@ oc get rolebinding -n <argocd-namespace>
 ```bash
 # For Process Mining
 oc get role -n <namespace> | grep cert-manager
-# For Dapr
-oc get role -n <namespace> | grep dapr
+# Verify Dapr label
+oc get namespace <namespace> --show-labels
 ```
 
 ### Resolution Steps

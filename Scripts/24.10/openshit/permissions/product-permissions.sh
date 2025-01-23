@@ -11,6 +11,7 @@ usage() {
     echo "  -n    Namespace where uipathadmin service account exists"
     echo "  -a    ArgoCD namespace"
     echo "  -p    Comma-separated list of products (pm for Process Mining, dapr for Dapr)"
+    echo "        Note: Selecting 'pm' will automatically include Dapr configuration"
     echo "  -h    Display this help message"
     exit 1
 }
@@ -49,7 +50,7 @@ trap 'rm -rf "$TMPDIR"' EXIT
 # Function to configure Process Mining permissions
 configure_process_mining() {
     echo "Configuring Process Mining permissions..."
-    
+
     # Create cert-manager role
     cat > "$TMPDIR/cert-manager-role.yaml" << EOF
 apiVersion: rbac.authorization.k8s.io/v1
@@ -177,6 +178,18 @@ if [ -n "$PRODUCTS" ]; then
     # Convert comma-separated string to array
     IFS=',' read -ra PRODUCT_ARRAY <<< "$PRODUCTS"
 
+    # Flag to track if Dapr needs to be configured
+    NEEDS_DAPR=false
+
+    # First pass to check if Process Mining is selected
+    for product in "${PRODUCT_ARRAY[@]}"; do
+        if [[ "$product" == "pm" ]]; then
+            NEEDS_DAPR=true
+            break
+        fi
+    done
+
+    # Second pass to process all products
     for product in "${PRODUCT_ARRAY[@]}"; do
         case $product in
             "pm")
@@ -184,6 +197,7 @@ if [ -n "$PRODUCTS" ]; then
                 configure_process_mining
                 ;;
             "dapr")
+                NEEDS_DAPR=false  # Reset flag since we'll configure it explicitly
                 echo "Setting up Dapr permissions..."
                 configure_dapr
                 ;;
@@ -192,6 +206,12 @@ if [ -n "$PRODUCTS" ]; then
                 ;;
         esac
     done
+
+    # Configure Dapr if Process Mining was selected and Dapr wasn't explicitly configured
+    if [[ "$NEEDS_DAPR" == "true" ]]; then
+        echo "Process Mining detected: Automatically configuring required Dapr permissions..."
+        configure_dapr
+    fi
 else
     echo "No products specified. Use -p option to specify products."
     usage
