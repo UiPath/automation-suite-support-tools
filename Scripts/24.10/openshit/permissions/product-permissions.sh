@@ -7,17 +7,18 @@ set -e
 
 # Function to display usage
 usage() {
-    echo "Usage: $0 -n <namespace> -a <argocd-namespace> [-p product1,product2,...]"
+    echo "Usage: $0 -n <namespace> -a <argocd-namespace> [-p product1,product2,...] [-d]"
     echo "  -n    Namespace where uipathadmin service account exists"
     echo "  -a    ArgoCD namespace"
     echo "  -p    Comma-separated list of products (pm for Process Mining, dapr for Dapr)"
     echo "        Note: Selecting 'pm' will automatically include Dapr configuration"
+    echo "  -d    Enable debug mode"
     echo "  -h    Display this help message"
     exit 1
 }
 
 # Parse command line arguments
-while getopts "n:a:p:h" opt; do
+while getopts "n:a:p:dh" opt; do
     case ${opt} in
         n )
             NAMESPACE=$OPTARG
@@ -28,6 +29,9 @@ while getopts "n:a:p:h" opt; do
         p )
             PRODUCTS=$OPTARG
             ;;
+        d )
+            DEBUG_MODE=true
+            ;;
         h )
             usage
             ;;
@@ -36,6 +40,11 @@ while getopts "n:a:p:h" opt; do
             ;;
     esac
 done
+
+# Enable debug mode if flag is set
+if [ "$DEBUG_MODE" = true ]; then
+    set -x
+fi
 
 # Validate required arguments
 if [ -z "$NAMESPACE" ] || [ -z "$ARGOCD_NAMESPACE" ]; then
@@ -175,6 +184,14 @@ EOF
 
 # Main execution
 if [ -n "$PRODUCTS" ]; then
+    echo "Configuring permissions with the following settings:"
+    echo "Namespace: $NAMESPACE"
+    echo "ArgoCD Namespace: $ARGOCD_NAMESPACE"
+    echo "Products: $PRODUCTS"
+    if [ "$DEBUG_MODE" = true ]; then
+        echo "Debug Mode: enabled"
+    fi
+
     # Convert comma-separated string to array
     IFS=',' read -ra PRODUCT_ARRAY <<< "$PRODUCTS"
 
@@ -215,6 +232,11 @@ if [ -n "$PRODUCTS" ]; then
 else
     echo "No products specified. Use -p option to specify products."
     usage
+fi
+
+# Disable debug mode if it was enabled
+if [ "$DEBUG_MODE" = true ]; then
+    set +x
 fi
 
 echo "Successfully configured product-specific permissions"

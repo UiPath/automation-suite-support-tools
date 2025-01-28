@@ -7,17 +7,21 @@ set -e
 
 # Function to display usage
 usage() {
-    echo "Usage: $0 -n <namespace>"
+    echo "Usage: $0 -n <namespace> [-d]"
     echo "  -n    Namespace where service account will be created"
+    echo "  -d    Enable debug mode"
     echo "  -h    Display this help message"
     exit 1
 }
 
 # Parse command line arguments
-while getopts "n:h" opt; do
+while getopts "n:dh" opt; do
     case ${opt} in
         n )
             NAMESPACE=$OPTARG
+            ;;
+        d )
+            DEBUG_MODE=true
             ;;
         h )
             usage
@@ -28,6 +32,11 @@ while getopts "n:h" opt; do
     esac
 done
 
+# Enable debug mode if flag is set
+if [ "$DEBUG_MODE" = true ]; then
+    set -x
+fi
+
 # Validate required arguments
 if [ -z "$NAMESPACE" ]; then
     echo "Error: Namespace (-n) is required"
@@ -35,6 +44,9 @@ if [ -z "$NAMESPACE" ]; then
 fi
 
 echo "Creating service account in namespace: $NAMESPACE"
+if [ "$DEBUG_MODE" = true ]; then
+    echo "Debug Mode: enabled"
+fi
 
 # Create namespace if it doesn't exist
 oc get namespace $NAMESPACE || oc new-project $NAMESPACE
@@ -62,6 +74,11 @@ SERVER=$(oc config view -o jsonpath="{.clusters[].cluster.server}")
 # Create kubeconfig file
 echo "Creating kubeconfig file: uipathadminkubeconfig"
 oc login --server=$SERVER --token=$TOKEN --kubeconfig=uipathadminkubeconfig --insecure-skip-tls-verify=true
+
+# Disable debug mode if it was enabled
+if [ "$DEBUG_MODE" = true ]; then
+    set +x
+fi
 
 echo "Successfully created:"
 echo "1. Namespace: $NAMESPACE"

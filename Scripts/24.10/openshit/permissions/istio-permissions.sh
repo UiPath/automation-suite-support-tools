@@ -7,16 +7,17 @@ set -e
 
 # Function to display usage
 usage() {
-    echo "Usage: $0 -n <namespace> -i <istio-namespace> [-w]"
+    echo "Usage: $0 -n <namespace> -i <istio-namespace> [-w] [-d]"
     echo "  -n    Namespace where uipathadmin service account exists"
     echo "  -i    Istio system namespace"
     echo "  -w    Configure WASM plugin permissions (optional)"
+    echo "  -d    Enable debug mode"
     echo "  -h    Display this help message"
     exit 1
 }
 
 # Parse command line arguments
-while getopts "n:i:wh" opt; do
+while getopts "n:i:wdh" opt; do
     case ${opt} in
         n )
             NAMESPACE=$OPTARG
@@ -27,6 +28,9 @@ while getopts "n:i:wh" opt; do
         w )
             WASM_PLUGIN=true
             ;;
+        d )
+            DEBUG_MODE=true
+            ;;
         h )
             usage
             ;;
@@ -35,6 +39,11 @@ while getopts "n:i:wh" opt; do
             ;;
     esac
 done
+
+# Enable debug mode if flag is set
+if [ "$DEBUG_MODE" = true ]; then
+    set -x
+fi
 
 # Validate required arguments
 if [ -z "$NAMESPACE" ] || [ -z "$ISTIO_NAMESPACE" ]; then
@@ -46,6 +55,9 @@ echo "Configuring Istio permissions:"
 echo "Namespace: $NAMESPACE"
 echo "Istio Namespace: $ISTIO_NAMESPACE"
 echo "WASM Plugin Permissions: ${WASM_PLUGIN:-false}"
+if [ "$DEBUG_MODE" = true ]; then
+    echo "Debug Mode: enabled"
+fi
 
 # Create temporary directory for YAML files
 TMPDIR=$(mktemp -d)
@@ -55,7 +67,7 @@ trap 'rm -rf "$TMPDIR"' EXIT
 cat > "$TMPDIR/namespace-reader.yaml" << EOF
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
-metadata:  
+metadata:
   name: namespace-reader-clusterrole
 rules:
   - apiGroups: [""]
@@ -124,6 +136,11 @@ if [ "$WASM_PLUGIN" = true ]; then
     echo "Creating WASM plugin admin binding..."
     oc -n $ISTIO_NAMESPACE create rolebinding uipadmin-istio-system \
       --clusterrole=admin --serviceaccount=$NAMESPACE:uipathadmin
+fi
+
+# Disable debug mode if it was enabled
+if [ "$DEBUG_MODE" = true ]; then
+    set +x
 fi
 
 echo "Successfully configured Istio system permissions"

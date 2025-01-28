@@ -7,17 +7,18 @@ set -e
 
 # Function to display usage
 usage() {
-    echo "Usage: $0 -n <namespace> -a <argocd-namespace> [-s] [-p <project-name>]"
+    echo "Usage: $0 -n <namespace> -a <argocd-namespace> [-s] [-p <project-name>] [-d]"
     echo "  -n    Namespace where uipathadmin service account exists"
     echo "  -a    ArgoCD namespace"
     echo "  -s    Use shared ArgoCD instance (optional)"
     echo "  -p    Project name for shared instance (required if -s is specified)"
+    echo "  -d    Enable debug mode"
     echo "  -h    Display this help message"
     exit 1
 }
 
 # Parse command line arguments
-while getopts "n:a:sp:h" opt; do
+while getopts "n:a:sp:dh" opt; do
     case ${opt} in
         n )
             NAMESPACE=$OPTARG
@@ -31,6 +32,9 @@ while getopts "n:a:sp:h" opt; do
         p )
             PROJECT_NAME=$OPTARG
             ;;
+        d )
+            DEBUG_MODE=true
+            ;;
         h )
             usage
             ;;
@@ -39,6 +43,11 @@ while getopts "n:a:sp:h" opt; do
             ;;
     esac
 done
+
+# Enable debug mode if flag is set
+if [ "$DEBUG_MODE" = true ]; then
+    set -x
+fi
 
 # Validate required arguments
 if [ -z "$NAMESPACE" ] || [ -z "$ARGOCD_NAMESPACE" ]; then
@@ -57,6 +66,9 @@ echo "ArgoCD Namespace: $ARGOCD_NAMESPACE"
 echo "Shared Instance: ${SHARED_INSTANCE:-false}"
 if [ "$SHARED_INSTANCE" = true ]; then
     echo "Project Name: $PROJECT_NAME"
+fi
+if [ "$DEBUG_MODE" = true ]; then
+    echo "Debug Mode: enabled"
 fi
 
 # Create temporary directory for YAML files
@@ -135,5 +147,10 @@ oc -n $ARGOCD_NAMESPACE create rolebinding uipath-application-manager \
 # Secret management binding
 oc -n $ARGOCD_NAMESPACE create rolebinding secret-binding \
   --role=argo-secret-role --serviceaccount=$NAMESPACE:uipathadmin
+
+# Disable debug mode if it was enabled
+if [ "$DEBUG_MODE" = true ]; then
+    set +x
+fi
 
 echo "Successfully configured ArgoCD permissions"
