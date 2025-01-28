@@ -7,25 +7,28 @@ This collection of scripts automates the setup of required permissions and confi
 ## Scripts Included
 
 1. **create-uipathadmin.sh**
-   - Creates service account and kubeconfig
-   - Sets up basic admin permissions
-   - Generates authentication tokens
+    - Creates service account and kubeconfig
+    - Sets up basic admin permissions
+    - Generates authentication tokens
+    - Supports debug mode for troubleshooting
 
 2. **istio-permissions.sh**
-   - Configures Istio system permissions
-   - Sets up WASM plugin permissions (optional)
-   - Creates necessary roles and bindings
+    - Configures Istio system permissions
+    - Sets up WASM plugin permissions (optional)
+    - Creates necessary roles and bindings
+    - Includes debug mode for detailed execution tracking
 
 3. **argocd-permissions.sh**
-   - Configures ArgoCD permissions
-   - Supports both dedicated and shared instances
-   - Sets up application and secret management
+    - Configures ArgoCD permissions
+    - Supports both dedicated and shared instances
+    - Sets up application and secret management
+    - Features debug output for troubleshooting
 
 4. **product-permissions.sh**
-- Sets up Process Mining and Dapr permissions
-- Supports both dedicated and shared ArgoCD instances
-- Note: Process Mining installation automatically includes Dapr configuration
-
+    - Sets up Process Mining and Dapr permissions
+    - Supports both dedicated and shared ArgoCD instances
+    - Note: Process Mining installation automatically includes Dapr configuration
+    - Includes debug mode for detailed execution logs
 
 ## Prerequisites
 
@@ -34,9 +37,9 @@ This collection of scripts automates the setup of required permissions and confi
 - Bash shell environment
 - Active cluster login
 - Required infrastructure:
-  - Istio service mesh installed
-  - ArgoCD/OpenShift GitOps configured
-  - Access to required namespaces
+    - Istio service mesh installed
+    - ArgoCD/OpenShift GitOps configured
+    - Access to required namespaces
 
 ## Quick Start
 
@@ -49,26 +52,26 @@ chmod +x *.sh
 
 2. **Create Service Account**
 ```bash
-./create-uipathadmin.sh -n uipath
+./create-uipathadmin.sh -n uipath [-d]
 ```
 
 3. **Configure Istio**
 ```bash
-./istio-permissions.sh -n uipath -i istio-system [-w]
+./istio-permissions.sh -n uipath -i istio-system [-w] [-d]
 ```
 
 4. **Set Up ArgoCD**
 ```bash
 # For dedicated instance
-./argocd-permissions.sh -n uipath -a argocd
+./argocd-permissions.sh -n uipath -a argocd [-d]
 
 # For shared instance
-./argocd-permissions.sh -n uipath -a openshift-gitops -s -p myproject
+./argocd-permissions.sh -n uipath -a openshift-gitops -s -p myproject [-d]
 ```
 
 5. **Configure Product Permissions**
 ```bash
-./product-permissions.sh -n uipath -a argocd -p pm
+./product-permissions.sh -n uipath -a argocd -p pm [-d]
 ```
 
 ## Common Parameters
@@ -81,40 +84,55 @@ chmod +x *.sh
 | -s | Use shared ArgoCD | argocd-permissions.sh |
 | -w | Enable WASM plugin | istio-permissions.sh |
 | -p | Products/Project | product-permissions.sh, argocd-permissions.sh |
+| -d | Enable debug mode | All scripts |
 | -h | Help message | All scripts |
+
+## Debug Mode
+
+All scripts support a debug mode that can be enabled with the `-d` flag. When enabled, debug mode:
+- Shows detailed execution information
+- Displays commands as they are executed
+- Prints variable expansions and substitutions
+- Helps identify where failures occur
+- Provides verbose output for troubleshooting
+
+Example usage with debug mode:
+```bash
+./script-name.sh [other-options] -d
+```
 
 ## Common Use Cases
 
 1. **Basic Installation**
 ```bash
 # Step 1: Service Account
-./create-uipathadmin.sh -n uipath
+./create-uipathadmin.sh -n uipath [-d]
 
 # Step 2: Istio Setup
-./istio-permissions.sh -n uipath -i istio-system
+./istio-permissions.sh -n uipath -i istio-system [-d]
 
 # Step 3: ArgoCD Configuration
-./argocd-permissions.sh -n uipath -a argocd
+./argocd-permissions.sh -n uipath -a argocd [-d]
 
 # Step 4: Process Mining Setup
 # Process Mining setup (includes Dapr)
-./product-permissions.sh -n uipath -a argocd -p pm
+./product-permissions.sh -n uipath -a argocd -p pm [-d]
 ```
 
 2. **Full Installation with WASM**
 ```bash
-./create-uipathadmin.sh -n uipath
-./istio-permissions.sh -n uipath -i istio-system -w
-./argocd-permissions.sh -n uipath -a argocd
-./product-permissions.sh -n uipath -a argocd -p pm,dapr
+./create-uipathadmin.sh -n uipath [-d]
+./istio-permissions.sh -n uipath -i istio-system -w [-d]
+./argocd-permissions.sh -n uipath -a argocd [-d]
+./product-permissions.sh -n uipath -a argocd -p pm,dapr [-d]
 ```
 
 3. **Shared ArgoCD Setup**
 ```bash
-./create-uipathadmin.sh -n uipath
-./istio-permissions.sh -n uipath -i istio-system
-./argocd-permissions.sh -n uipath -a openshift-gitops -s -p myproject
-./product-permissions.sh -n uipath -a openshift-gitops -p pm
+./create-uipathadmin.sh -n uipath [-d]
+./istio-permissions.sh -n uipath -i istio-system [-d]
+./argocd-permissions.sh -n uipath -a openshift-gitops -s -p myproject [-d]
+./product-permissions.sh -n uipath -a openshift-gitops -p pm [-d]
 ```
 
 ## Verification Steps
@@ -147,19 +165,25 @@ oc get role -n <namespace> | grep cert-manager
 oc get namespace <namespace> --show-labels
 ```
 
-### Resolution Steps
+### Troubleshooting
 
-1. **Check Logs**
+1. **Enable Debug Mode**
+```bash
+# Run the failing script with debug mode
+./script-name.sh [options] -d
+```
+
+2. **Check Logs**
 ```bash
 oc logs <pod-name> -n <namespace>
 ```
 
-2. **Verify Permissions**
+3. **Verify Permissions**
 ```bash
 oc auth can-i <verb> <resource> -n <namespace>
 ```
 
-3. **Reset Configuration**
+4. **Reset Configuration**
 ```bash
 # Remove and recreate resources
 oc delete role <role-name> -n <namespace>
