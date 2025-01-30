@@ -54,7 +54,7 @@ fi
 
 # Create temporary directory for YAML files
 TMPDIR=$(mktemp -d)
-trap 'rm -rf "$TMPDIR"' EXIT
+echo "Temp Directory: $TMPDIR"
 
 # Function to configure Process Mining permissions
 configure_process_mining() {

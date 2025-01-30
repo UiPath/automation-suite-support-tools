@@ -61,7 +61,7 @@ fi
 
 # Create temporary directory for YAML files
 TMPDIR=$(mktemp -d)
-trap 'rm -rf "$TMPDIR"' EXIT
+echo "Temp Directory: $TMPDIR"
 
 # Create role for namespace reader
 cat > "$TMPDIR/namespace-reader.yaml" << EOF

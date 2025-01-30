@@ -73,7 +73,7 @@ fi
 
 # Create temporary directory for YAML files
 TMPDIR=$(mktemp -d)
-trap 'rm -rf "$TMPDIR"' EXIT
+echo "Temp Directory: $TMPDIR"
 
 # Create role for limit range management
 cat > "$TMPDIR/limit-range-role.yaml" << EOF
