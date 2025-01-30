@@ -58,6 +58,16 @@ EOL
 
     # Create Operators YAML
     cat > "$temp_dir/operators.yaml" << 'EOL'
+apiVersion: operators.coreos.com/v1
+kind: OperatorGroup
+metadata:
+  annotations:
+    olm.providedAPIs: Jaeger.v1.jaegertracing.io
+  name: openshift-distributed-tracing-operator
+  namespace: openshift-distributed-tracing
+spec:
+  upgradeStrategy: Default
+---
 apiVersion: operators.coreos.com/v1alpha1
 kind: Subscription
 metadata:

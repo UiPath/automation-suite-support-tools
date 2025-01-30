@@ -58,50 +58,37 @@ wait_for_operator() {
     local namespace="$1"
     echo "Waiting for ArgoCD operator deployment..."
 
-    local deployments=("openshift-gitops-operator")
-
-    for deploy in "${deployments[@]}"; do
-        for ((i = 1; i <= MAX_ATTEMPTS; i++)); do
-            if kubectl rollout status deployment/"$deploy" -n "$namespace" >/dev/null 2>&1; then
-                echo "Deployment $deploy is ready"
-                break
-            fi
-            if [ $i -eq $MAX_ATTEMPTS ]; then
-                echo "ERROR: Timeout waiting for deployment $deploy"
-                return 1
-            fi
-            echo "Waiting for deployment $deploy... Attempt $i/$MAX_ATTEMPTS"
-            sleep $SLEEP_DURATION
-        done
+    for ((i = 1; i <= MAX_ATTEMPTS; i++)); do
+        if kubectl rollout status deployment/openshift-gitops-operator-controller-manager -n "$namespace" >/dev/null 2>&1; then
+            echo "Operator deployment is ready"
+            return 0
+        fi
+        if [ $i -eq $MAX_ATTEMPTS ]; then
+            echo "ERROR: Timeout waiting for operator deployment"
+            return 1
+        fi
+        echo "Waiting for operator deployment... Attempt $i/$MAX_ATTEMPTS"
+        sleep $SLEEP_DURATION
     done
 }
 
 # Function to wait for ArgoCD instance
 wait_for_argocd_instance() {
     local namespace="$1"
-    local instance_type="$2"
     echo "Waiting for ArgoCD instance to be ready..."
 
-    local deployments=()
-    if [ "$instance_type" = "dedicated" ]; then
-        deployments=("argocd-server" "argocd-repo-server" "argocd-redis" "argocd-application-controller")
-    else
-        deployments=("openshift-gitops-server" "openshift-gitops-repo-server" "openshift-gitops-redis" "openshift-gitops-application-controller")
-    fi
-
-    for deploy in "${deployments[@]}"; do
-        for ((i = 1; i <= MAX_ATTEMPTS; i++)); do
-            if kubectl rollout status deployment/"$deploy" -n "$namespace" >/dev/null 2>&1; then
-                echo "Deployment $deploy is ready"
-                break
-            fi
-            if [ $i -eq $MAX_ATTEMPTS ]; then
-                echo "ERROR: Timeout waiting for deployment $deploy"
-                return 1
-            fi
-            echo "Waiting for deployment $deploy... Attempt $i/$MAX_ATTEMPTS"
-            sleep $SLEEP_DURATION
-        done
+    for ((i = 1; i <= MAX_ATTEMPTS; i++)); do
+        status=$(oc get argocd argocd -n "$namespace" -o jsonpath="{.status.phase}" 2>/dev/null)
+        if [ "$status" = "Available" ]; then
+            echo "ArgoCD instance is ready"
+            return 0
+        fi
+        if [ $i -eq $MAX_ATTEMPTS ]; then
+            echo "ERROR: Timeout waiting for ArgoCD instance"
+            return 1
+        fi
+        echo "Waiting for ArgoCD instance... Attempt $i/$MAX_ATTEMPTS (status: $status)"
+        sleep $SLEEP_DURATION
     done
 }
 
@@ -144,7 +131,7 @@ spec:
 EOF
 
     # Create ArgoCD Instance YAML
-    cat > "$temp_dir/argocd.yaml" << EOF
+cat > "$temp_dir/argocd.yaml" << EOF
 apiVersion: argoproj.io/v1beta1
 kind: ArgoCD
 metadata:
@@ -164,10 +151,20 @@ spec:
       type: ''
   grafana:
     enabled: false
-  prometheus:
+    ingress:
+      enabled: false
+    route:
+      enabled: false
+  monitoring:
     enabled: false
   notifications:
     enabled: false
+  prometheus:
+    enabled: false
+    ingress:
+      enabled: false
+    route:
+      enabled: false
   initialSSHKnownHosts: {}
   rbac: {}
   repo: {}
@@ -176,6 +173,9 @@ spec:
   tls:
     ca: {}
   redis: {}
+  controller:
+    processors: {}
+    sharding: {}
 EOF
 
     # Create role configurations
@@ -335,7 +335,7 @@ configure_repository() {
         sleep $SLEEP_DURATION
     done
 
-    local argo_url="https://$argo_route"
+    local argo_url="$argo_route"
     local argo_password=$(kubectl -n "$namespace" get secrets argocd-cluster -o jsonpath='{.data.admin\.password}' | base64 -d)
     local argo_username="admin"
 

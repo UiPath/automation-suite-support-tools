@@ -174,6 +174,7 @@ install_redis() {
     # Wait for cluster to be ready
     echo "Waiting for Redis Enterprise Cluster to be ready..."
     for i in {1..30}; do
+        echo "Waiting for Redis Enterprise Cluster to be ready...$i/30"
         if [ "$(kubectl get RedisEnterpriseCluster -n "$namespace" -o json | jq -r '.items[0].status.state')" = "Running" ]; then
             break
         fi
