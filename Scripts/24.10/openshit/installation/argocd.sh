@@ -389,7 +389,7 @@ install_argocd() {
 
     # Create temporary directory
     local temp_dir=$(mktemp -d)
-    trap 'rm -rf "$temp_dir"' EXIT
+    echo "Temp Directory: $temp_dir"
 
     # Create YAML files
     create_yaml_files "$temp_dir" "$namespace" "$uipath_namespace" "$instance_type"

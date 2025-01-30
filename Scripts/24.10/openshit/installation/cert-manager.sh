@@ -116,7 +116,7 @@ install_cert_manager() {
     
     # Create temporary directory for YAML files
     temp_dir=$(mktemp -d)
-    trap 'rm -rf "$temp_dir"' EXIT
+    echo "Temp Directory: $temp_dir"
     
     # Create YAML files
     create_yaml_files "$temp_dir"
