@@ -17,11 +17,18 @@
 
 set -ue
 
+NS_ARGOCD="${NS_ARGOCD:=argocd}"
+NS_UIPATH="${NS_UIPATH:=uipath}"
+NS_ISTIO="${NS_ISTIO:=istio-system}"
+NS_AIRFLOW="${NS_AIRFLOW:=airflow}"
+NS_MONITORING="${NS_MONITORING:=monitoring}"
+
 REGISTRY=
 REPOSITORY=
 PLUGIN_NAME=
 PLUGIN_IMAGE=
 KUBECTL_IMAGE_TAG=
+KUBECTL_IMAGE_REPO=
 PROVIDER=
 BUCKET=
 AZURE_RG=
@@ -67,6 +74,8 @@ function populate_values() {
 			HELM_INSTALLER_IMAGE_TAG="1.30.5"
 		elif [[ "$HELM_INSTALLER_IMAGE_TAG" == "2024.10.1" ]]; then
 			HELM_INSTALLER_IMAGE_TAG="2024.10.1-1.30.5-7638190"
+		elif [[ "$HELM_INSTALLER_IMAGE_TAG" == 2024.10.* ]]; then
+			error "Script doesn't support DR reconfiguration for version=$HELM_INSTALLER_IMAGE_TAG"
 		fi
 	fi
 
@@ -86,6 +95,7 @@ function populate_values() {
 	PLUGIN_NAME=$(echo $velero_deploy_json | jq -r .initContainers[0].name)
 
 	KUBECTL_IMAGE_TAG=$(echo $velero_deploy_json | jq -r ".kubectl.image.tag // empty")
+	KUBECTL_IMAGE_REPO=$(echo $velero_deploy_json | jq -r ".kubectl.image.repository")
 
 	azure_secret=$(echo $velero_deploy_json | jq -r ".credentials // empty")
 	if [[ ! -z "$azure_secret" ]]; then
@@ -154,7 +164,7 @@ data:
         annotations: {}
     kubectl:
       image:
-        repository: bitnami/kubectl
+        repository: KUBECTL_IMAGE_REPO_VALUE
         tag: KUBECTL_IMAGE_TAG_VALUE
 "
 
@@ -163,7 +173,8 @@ configMapCredTemplate="    credentials:
       existingSecret: CREDENTIAL_SECRET_NAME_VALUE
 "
 
-configMapAZURETemplateOld="    configuration:
+# azure template for velero version 3.1.x
+configMapAZURETemplate_3_1="    configuration:
       provider: azure
       backupStorageLocation:
         name: default-bsl
@@ -179,7 +190,7 @@ configMapAZURETemplateOld="    configuration:
           subscriptionId: AZURE_SUBSCRIPTION_ID_VALUE
 "
 
-configMapAZURETemplateNew="    configuration:
+configMapAZURETemplate="    configuration:
       backupStorageLocation:
         - bucket: BUCKET_VALUE
           config:
@@ -196,7 +207,8 @@ configMapAZURETemplateNew="    configuration:
           provider: azure
 "
 
-configMapAWSTemplateOld="    configuration:
+# AWS template for velero version 3.1.x
+configMapAWSTemplate_3_1="    configuration:
       provider: aws
       backupStorageLocation:
         name: default-bsl
@@ -209,7 +221,7 @@ configMapAWSTemplateOld="    configuration:
           region: AWS_REGION_VALUE
 "
 
-configMapAWSTemplateNew="    configuration:
+configMapAWSTemplate="    configuration:
       backupStorageLocation:
         - bucket: BUCKET_VALUE
           config:
@@ -239,6 +251,7 @@ create_config_map() {
 		sed -e "s|REPOSITORY_VALUE|$REPOSITORY|g" 	\
 		-e "s|PLUGIN_NAME_VALUE|$PLUGIN_NAME|g"	\
 		-e "s|PLUGIN_IMAGE_VALUE|$PLUGIN_IMAGE|g"	\
+		-e "s|KUBECTL_IMAGE_REPO_VALUE|$KUBECTL_IMAGE_REPO|g"	\
 		-e "s|KUBECTL_IMAGE_TAG_VALUE|$KUBECTL_IMAGE_TAG|g"	\
 		)
 
@@ -250,14 +263,14 @@ create_config_map() {
 	parsedConfigMapAZURE=
 	if [[ "$PROVIDER" == "azure" ]]; then
 		if [[ "$VELERO_CHART_VERSION" == 3.1* ]]; then
-			parsedConfigMapAZURE=$(echo "$configMapAZURETemplateOld" |	\
+			parsedConfigMapAZURE=$(echo "$configMapAZURETemplate_3_1" |	\
 				sed -e "s|BUCKET_VALUE|$BUCKET|g"	\
 				-e "s|AZURE_RG_VALUE|$AZURE_RG|g"	\
 				-e "s|AZURE_SUBSCRIPTION_ID_VALUE|$AZURE_SUBSCRIPTION_ID|g"	\
 				-e "s|AZURE_ACCOUNT_VALUE|$AZURE_ACCOUNT|g"	\
 				)
 		else
-			parsedConfigMapAZURE=$(echo "$configMapAZURETemplateNew" |	\
+			parsedConfigMapAZURE=$(echo "$configMapAZURETemplate" |	\
 				sed -e "s|BUCKET_VALUE|$BUCKET|g"	\
 				-e "s|AZURE_RG_VALUE|$AZURE_RG|g"	\
 				-e "s|AZURE_SUBSCRIPTION_ID_VALUE|$AZURE_SUBSCRIPTION_ID|g"	\
@@ -269,12 +282,12 @@ create_config_map() {
 	parsedConfigMapAWS=
 	if [[ "$PROVIDER" == "aws" ]]; then
 		if [[ "$VELERO_CHART_VERSION" == 3.1* ]]; then
-			parsedConfigMapAWS=$(echo "$configMapAWSTemplateOld" | \
+			parsedConfigMapAWS=$(echo "$configMapAWSTemplate_3_1" | \
 				sed -e "s|BUCKET_VALUE|$BUCKET|g"	\
 				-e "s|AWS_REGION_VALUE|$AWS_REGION|g"	\
 				)
 		else
-			parsedConfigMapAWS=$(echo "$configMapAWSTemplateNew" | \
+			parsedConfigMapAWS=$(echo "$configMapAWSTemplate" | \
 				sed -e "s|BUCKET_VALUE|$BUCKET|g"	\
 				-e "s|AWS_REGION_VALUE|$AWS_REGION|g"	\
 				)
@@ -571,11 +584,11 @@ spec:
   csiSnapshotTimeout: 10m0s
   defaultVolumesToFsBackup: false
   includedNamespaces:
-  - argocd
-  - istio-system
-  - uipath
-  - monitoring
-  - airflow
+  - $NS_ARGOCD
+  - $NS_UIPATH
+  - $NS_ISTIO
+  - $NS_AIRFLOW
+  - $NS_MONITORING
   snapshotVolumes: true
   storageLocation: default-bsl
   ttl: 8760h0m0s
@@ -596,11 +609,11 @@ spec:
   csiSnapshotTimeout: 10m0s
   defaultVolumesToFsBackup: false
   includedNamespaces:
-  - argocd
-  - istio-system
-  - uipath
-  - monitoring
-  - airflow
+  - $NS_ARGOCD
+  - $NS_UIPATH
+  - $NS_ISTIO
+  - $NS_AIRFLOW
+  - $NS_MONITORING
   snapshotVolumes: true
   storageLocation: default-bsl
   ttl: 8760h0m0s
@@ -636,6 +649,14 @@ display_usage() {
 
         -b, --backup <backup-name>:
             Create backup of cluster.
+	    Backup will be created for argocd, uipath, istio, airflow, monitoring namespace.
+
+	    If cluster is using different namespace instead of standard one,
+    	    then export below variables to map relevant namespace:
+              NS_ARGOCD => for argocd namespace
+              NS_UIPATH => for uipath namespace
+              NS_AIRFLOW => for airflow namespace
+              NS_MONITORING => for monitoring namespace
 
         -h, --help:
             Display usage of utility

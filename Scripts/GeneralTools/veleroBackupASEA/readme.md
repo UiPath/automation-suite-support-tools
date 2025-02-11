@@ -27,6 +27,14 @@ Options:
 
         -b, --backup <backup-name>:
             Create backup of cluster.
+            Backup will be created for argocd, uipath, istio, airflow, monitoring namespace.
+
+            If cluster is using different namespace instead of standard one,
+            then export below variables to map relevant namespace:
+              NS_ARGOCD => for argocd namespace
+              NS_UIPATH => for uipath namespace
+              NS_AIRFLOW => for airflow namespace
+              NS_MONITORING => for monitoring namespace
 
         -h, --help:
             Display usage of utility
