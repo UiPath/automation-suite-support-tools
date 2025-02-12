@@ -15,7 +15,7 @@
 # - Before executing the script, ensure backup store is configured
 # - Re-installing argocd, insight, velero and studioweb components will override the modified configuration. Please re-run this script post re-installation of these components.
 
-set -ue
+set -ueo pipefail
 
 NS_ARGOCD="${NS_ARGOCD:=argocd}"
 NS_UIPATH="${NS_UIPATH:=uipath}"
@@ -61,6 +61,30 @@ function info() {
 function warn() {
   echo -e "${YELLOW}[WARN] [$(date +'%Y-%m-%dT%H:%M:%S%z')]: $*${NC}" >&2
 }
+
+DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+
+# DUMP_DIR used to generate yaml files
+DUMP_DIR=`mktemp -d -p "$DIR"`
+
+if [[ ! "$DUMP_DIR" || ! -d "$DUMP_DIR" ]]; then
+  error "Failed to create temporary directory"
+fi
+
+info "Using $DUMP_DIR for generating temporary files"
+
+# clean up dump directory
+function cleanup {
+ 	if [[ $1 -ne 0 ]]; then
+		error "Command failed. Cleanup $DUMP_DIR before re-executing the script"
+	fi
+
+	rm -rf "$DUMP_DIR"
+	info "Deleted temporary directory $DUMP_DIR"
+}
+
+# register the cleanup function to be called on the EXIT signal
+trap 'cleanup $?' EXIT
 
 function populate_values() {
 	release_info=$(kubectl get secret -n velero   --sort-by='.metadata.creationTimestamp'  -l owner=helm,name=velero,status=deployed)
@@ -337,7 +361,9 @@ create_config_map() {
 		finalConfigMap=$(echo "$finalConfigMap"; echo "$parsedConfigMapNodeAgentTolerations")
 	fi
 
-	echo "$finalConfigMap" | kubectl apply -f -
+	configmap_file=$(mktemp --tmpdir=$DUMP_DIR --suffix=.configmap.yaml)
+	echo "$finalConfigMap" >> $configmap_file
+	kubectl apply -f "${configmap_file}"
 }
 
 install_velero() {
@@ -349,7 +375,8 @@ install_velero() {
 		tolerations=$VELERO_NODE_TOLERATIONS
 	fi
 
-kubectl apply -f - <<EOF
+	helm_installer_file=$(mktemp --tmpdir=$DUMP_DIR --suffix=.helm-installer.yaml)
+cat >"${helm_installer_file}" <<EOF
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -455,6 +482,7 @@ spec:
     name: values
 EOF
 
+	kubectl apply -f "${helm_installer_file}"
 	#wait for installer pod to complete
 	kubectl wait -n uipath-installer pod install-velero-manual --for=jsonpath='{.status.phase}'=Succeeded --timeout=600s
 
@@ -570,8 +598,9 @@ create_backup() {
 	info "Creating backup=$name"
 	VELERO_VERSION=$(kubectl get deploy -n velero velero -o jsonpath='{.spec.template.spec.containers[0].image}' | awk -F 'velero/velero:' '{print $2}')
 
+	backup_file=$(mktemp --tmpdir=$DUMP_DIR --suffix=.backup.yaml)
 	if [[ "$VELERO_VERSION" == v1.10.* ]]; then
-kubectl apply -f - <<EOF
+cat >"${backup_file}" <<EOF
 apiVersion: velero.io/v1
 kind: Backup
 metadata:
@@ -596,7 +625,7 @@ spec:
   - default-vsl
 EOF
 	else
-kubectl apply -f - <<EOF
+cat >"${backup_file}" <<EOF
 apiVersion: velero.io/v1
 kind: Backup
 metadata:
@@ -625,6 +654,7 @@ spec:
 EOF
 	fi
 
+	kubectl apply -f "${backup_file}"
 	IFS=" " read -r -a sc <<<$(kubectl get pv  -o jsonpath="{.items[*].spec.storageClassName}")
 
 	info "Backup=$name created"
