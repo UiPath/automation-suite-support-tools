@@ -1,0 +1,34 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sf-debug
+  namespace: uipath
+  annotations:
+    sidecar.istio.io/inject: "false"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: sf-debug
+  template:
+    metadata:
+      labels:
+        app: sf-debug
+      annotations:
+        sidecar.istio.io/inject: "false"
+    spec:
+      containers:
+      - command: ["sleep" , "infinity"]
+        image: sf-debug-helper:<TAG>
+        name: sf-debug
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+            - NET_RAW
+          privileged: false
+          readOnlyRootFilesystem: true
+          runAsGroup: 1
+          runAsNonRoot: true
+          runAsUser: 1
