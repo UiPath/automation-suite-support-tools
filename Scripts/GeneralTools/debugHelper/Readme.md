@@ -17,6 +17,13 @@ This tool provides a debug container with many tools pre-installed for troublesh
 - ...
 
 
+# Points to note
+
+- The container is deployed with a volume mount to `/tmp`. This is to ensure that the container has a writable directory.
+- The container is deployed with an environment variable `HOME` set to `/tmp`. Because tools like az need a writeable location.
+- You can access sqlcmd binary from the container using the following command: `/opt/mssql-tools/bin/sqlcmd`
+
+
 # Docker Image Build, Push, and Deployment Guide
 
 ## **1. Prerequisites**
@@ -40,7 +47,7 @@ The script `buildAndPushImage.sh` automates building, tagging and pushing the Do
 This will:
 
 - Build the Docker image.
-- Tag it as `sfbrdevhelmweacr.azurecre.io/sf-debug-helper:<tag>`.
+- Tag it as `sfbrdevhelmweacr.azurecr.io/sf-debug-helper:<tag>`.
 - Push it to the container registry.
 
 To push the image to Production ACR (`registry.uipath.com`) from Dev ACR, you need to use this [Image Promotion pipeline](https://dev.azure.com/uipath/Service%20Fabric/_build?definitionId=11728&_a=summary).

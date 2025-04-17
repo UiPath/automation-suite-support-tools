@@ -17,10 +17,19 @@ spec:
       annotations:
         sidecar.istio.io/inject: "false"
     spec:
+      volumes:
+      - name: tmp
+        emptyDir: {}
       containers:
       - command: ["sleep" , "infinity"]
         image: sf-debug-helper:<TAG>
         name: sf-debug
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+        env:
+        - name: HOME
+          value: /tmp
         securityContext:
           allowPrivilegeEscalation: false
           capabilities:
