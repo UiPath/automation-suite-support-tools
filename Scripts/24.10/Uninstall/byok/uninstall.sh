@@ -480,22 +480,44 @@ function delete_rolebinding {
 }
 
 function delete_argocd_app {
-    local app=$1
+  local app=$1
 
-    if $DRY_RUN; then
-        echo "DRY-RUN: Would delete ArgoCD application: $app"
-    else
-        if $VERBOSE; then
-            echo "Deleting ArgoCD application: $app"
-        fi
+  if $DRY_RUN; then
+    echo "DRY-RUN: Would delete ArgoCD application: $app"
+    return
+  fi
 
-        if [ "$K8S_DISTRIBUTION" = "openshift" ]; then
-            $K8S_CMD delete application "$app" -n $ARGOCD_NAMESPACE --ignore-not-found=true
-            $K8S_CMD delete application "$app" -n openshift-gitops --ignore-not-found=true
-        else
-            $K8S_CMD delete application "$app" -n $ARGOCD_NAMESPACE --ignore-not-found=true
-        fi
+  if $VERBOSE; then
+    echo "Deleting ArgoCD application: $app"
+  fi
+
+  # Determine which namespaces to check based on K8S_DISTRIBUTION
+  local namespaces=("$ARGOCD_NAMESPACE")
+  if [ "$K8S_DISTRIBUTION" = "openshift" ]; then
+    namespaces+=("openshift-gitops")
+  fi
+
+  # Process each relevant namespace
+  for ns in "${namespaces[@]}"; do
+    # Check if application exists in this namespace
+    if ! $K8S_CMD get application "$app" -n "$ns" --ignore-not-found=true &>/dev/null; then
+      continue  # Skip to next namespace if app doesn't exist in this one
     fi
+
+    # Check if application has finalizers
+    local has_finalizers=$($K8S_CMD get application "$app" -n "$ns" -o jsonpath='{.metadata.finalizers[0]}' 2>/dev/null)
+
+    if [ -n "$has_finalizers" ]; then
+      if $VERBOSE; then
+        echo "Removing finalizers from application $app in namespace $ns"
+      fi
+      # Remove finalizers using patch
+      $K8S_CMD patch application "$app" -n "$ns" --type json --patch='[{"op": "remove", "path": "/metadata/finalizers"}]'
+    fi
+
+    # Delete the application
+    $K8S_CMD delete application "$app" -n "$ns" --ignore-not-found=true
+  done
 }
 
 function delete_namespace {
