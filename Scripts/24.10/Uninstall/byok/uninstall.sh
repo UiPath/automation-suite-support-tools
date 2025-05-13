@@ -235,26 +235,26 @@ function show_help {
 
 function check_prerequisites {
     if [ "$K8S_DISTRIBUTION" = "openshift" ]; then
-        if ! command -v oc &> /dev/null; then
+        if ! command -v oc; then
             echo "Error: oc (OpenShift CLI) is not installed or not in PATH"
             exit 1
         fi
         K8S_CMD="oc"
     else
-        if ! command -v kubectl &> /dev/null; then
+        if ! command -v kubectl; then
             echo "Error: kubectl is not installed or not in PATH"
             exit 1
         fi
         K8S_CMD="kubectl"
     fi
 
-    if ! command -v helm &> /dev/null; then
+    if ! command -v helm; then
         echo "Error: helm is not installed or not in PATH"
         exit 1
     fi
 
     if [ -n "$CLUSTER_CONFIG_FILE" ]; then
-        if ! command -v jq &> /dev/null; then
+        if ! command -v jq; then
             echo "Warning: jq is not installed. Will use basic JSON parsing for configuration."
         fi
 
@@ -280,8 +280,8 @@ function read_excluded_from_json {
     local file="$1"
 
     if [ -f "$file" ]; then
-        if command -v jq >/dev/null 2>&1; then
-            if jq -e '.exclude_components' "$file" > /dev/null 2>&1; then
+        if command -v jq; then
+            if jq -e '.exclude_components' "$file"; then
                 local excluded_json=$(jq -r '.exclude_components | join(",")' "$file")
                 if [ "$excluded_json" != "null" ] && [ -n "$excluded_json" ]; then
                     echo "$excluded_json"
@@ -500,12 +500,12 @@ function delete_argocd_app {
   # Process each relevant namespace
   for ns in "${namespaces[@]}"; do
     # Check if application exists in this namespace
-    if ! $K8S_CMD get application "$app" -n "$ns" --ignore-not-found=true &>/dev/null; then
+    if ! $K8S_CMD get application "$app" -n "$ns" --ignore-not-found=true; then
       continue  # Skip to next namespace if app doesn't exist in this one
     fi
 
     # Check if application has finalizers
-    local has_finalizers=$($K8S_CMD get application "$app" -n "$ns" -o jsonpath='{.metadata.finalizers[0]}' 2>/dev/null)
+    local has_finalizers=$($K8S_CMD get application "$app" -n "$ns" -o jsonpath='{.metadata.finalizers[0]}' 2>&1)
 
     if [ -n "$has_finalizers" ]; then
       if $VERBOSE; then
@@ -603,11 +603,11 @@ function delete_crd_instances {
             echo "Deleting all instances of CRD: $crd"
         fi
 
-        if $K8S_CMD get crd "$crd" &>/dev/null; then
+        if $K8S_CMD get crd "$crd"; then
             local api_resource=$($K8S_CMD api-resources --api-group=$(echo "$crd" | cut -d. -f2-) | grep $(echo "$crd" | cut -d. -f1) | awk '{print $1}')
 
             if [ -n "$api_resource" ]; then
-                local instances=$($K8S_CMD get "$api_resource" --all-namespaces -o jsonpath='{range .items[*]}{.metadata.namespace}{" "}{.metadata.name}{"\n"}{end}' 2>/dev/null || echo "")
+                local instances=$($K8S_CMD get "$api_resource" --all-namespaces -o jsonpath='{range .items[*]}{.metadata.namespace}{" "}{.metadata.name}{"\n"}{end}' 2>&1)
 
                 if [ -n "$instances" ]; then
                     while read -r line; do
