@@ -63,11 +63,8 @@ function define_components {
 
     if [ "$K8S_DISTRIBUTION" = "openshift" ]; then
         shared_gitops="
-        role:argo-secret-role:openshift-gitops
         role:uipath-application-manager:openshift-gitops
-        rolebinding:secret-binding:openshift-gitops
         rolebinding:uipath-application-manager:openshift-gitops
-        rolebinding:namespace-reader-rolebinding:openshift-gitops
         "
     fi
 
