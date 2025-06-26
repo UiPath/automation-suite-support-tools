@@ -48,7 +48,7 @@ function define_components {
 
     if [ "$K8S_DISTRIBUTION" = "openshift" ]; then
         # For OpenShift, only delete applications, not infrastructure, and DO NOT delete the namespace
-        echo "Using ArgoCD for infrastructure management OpenShift"
+        echo "choosing openshift based ArgoCD configuration"
         argocd="
         role:argo-secret-role:${ARGOCD_NAMESPACE}
         role:uipath-application-manager:${ARGOCD_NAMESPACE}
@@ -58,7 +58,7 @@ function define_components {
         rolebinding:namespace-reader-rolebinding:${ARGOCD_NAMESPACE}
         "
     else
-        echo "Using ArgoCD for infrastructure management Non OpenShift"
+        echo "choosing non-openshift (eks/aks) based ArgoCD configuration"
         argocd+="
         namespace:${ARGOCD_NAMESPACE}
         rolebinding:uipath-application-manager-rolebinding:${ARGOCD_NAMESPACE}
