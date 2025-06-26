@@ -44,8 +44,6 @@ function define_components {
     role:argo-secret-role:${ARGOCD_NAMESPACE}
     role:uipath-application-manager:${ARGOCD_NAMESPACE}
     rolebinding:secret-binding:${ARGOCD_NAMESPACE}
-    namespace:${ARGOCD_NAMESPACE}
-    crd:applications.argoproj.io
     "
 
     if [ "$K8S_DISTRIBUTION" = "openshift" ]; then
@@ -57,6 +55,7 @@ function define_components {
         "
     else
         argocd+="
+        namespace:${ARGOCD_NAMESPACE}
         rolebinding:uipath-application-manager-rolebinding:${ARGOCD_NAMESPACE}
         rolebinding:namespace-reader-rolebinding:${ARGOCD_NAMESPACE}
         "
@@ -264,7 +263,7 @@ function check_prerequisites {
 }
 
 function get_all_components {
-    local components="istio argocd uipath cert_manager network_policies gatekeeper falco istio_configure"
+    local components="uipath istio argocd cert_manager network_policies gatekeeper falco istio_configure"
     if [ "$K8S_DISTRIBUTION" = "openshift" ]; then
         components="$components shared_gitops"
     else
@@ -298,8 +297,8 @@ function read_excluded_from_json {
     local file="$1"
 
     if [ -f "$file" ]; then
-        if command -v jq; then
-            if jq -e '.exclude_components' "$file"; then
+        if command -v jq >/dev/null 2>&1; then
+            if jq -e '.exclude_components' "$file" >/dev/null 2>&1; then
                 local excluded_json=$(jq -r '.exclude_components | join(",")' "$file")
                 if [ "$excluded_json" != "null" ] && [ -n "$excluded_json" ]; then
                     echo "$excluded_json"
