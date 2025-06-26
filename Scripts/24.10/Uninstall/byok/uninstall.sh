@@ -10,6 +10,7 @@ CLUSTER_CONFIG_FILE=""
 ISTIO_NAMESPACE="istio-system"
 UIPATH_NAMESPACE="uipath"
 ARGOCD_NAMESPACE="argocd"
+ARGOCD_SHARED=false
 
 
 function define_components {
@@ -40,22 +41,26 @@ function define_components {
 #    fi
 
     argocd="
-    helm:argocd:${ARGOCD_NAMESPACE}
     role:argo-secret-role:${ARGOCD_NAMESPACE}
     role:uipath-application-manager:${ARGOCD_NAMESPACE}
     rolebinding:secret-binding:${ARGOCD_NAMESPACE}
-    namespace:${ARGOCD_NAMESPACE}
-    crd:applications.argoproj.io
     "
 
     if [ "$K8S_DISTRIBUTION" = "openshift" ]; then
-        argocd+="
+        # For OpenShift, only delete applications, not infrastructure, and DO NOT delete the namespace
+        echo "choosing openshift based ArgoCD configuration"
+        argocd="
+        role:argo-secret-role:${ARGOCD_NAMESPACE}
+        role:uipath-application-manager:${ARGOCD_NAMESPACE}
+        rolebinding:secret-binding:${ARGOCD_NAMESPACE}
+        crd:applications.argoproj.io
         rolebinding:uipath-application-manager:${ARGOCD_NAMESPACE}
         rolebinding:namespace-reader-rolebinding:${ARGOCD_NAMESPACE}
-        operator:openshift-gitops-operator
         "
     else
+        echo "choosing non-openshift (eks/aks) based ArgoCD configuration"
         argocd+="
+        namespace:${ARGOCD_NAMESPACE}
         rolebinding:uipath-application-manager-rolebinding:${ARGOCD_NAMESPACE}
         rolebinding:namespace-reader-rolebinding:${ARGOCD_NAMESPACE}
         "
@@ -63,13 +68,8 @@ function define_components {
 
     if [ "$K8S_DISTRIBUTION" = "openshift" ]; then
         shared_gitops="
-        role:argo-secret-role:openshift-gitops
         role:uipath-application-manager:openshift-gitops
-        rolebinding:secret-binding:openshift-gitops
         rolebinding:uipath-application-manager:openshift-gitops
-        rolebinding:namespace-reader-rolebinding:openshift-gitops
-        argocd:uipath
-        crd:applications.argoproj.io
         "
     fi
 
@@ -125,7 +125,6 @@ function define_components {
         rolebinding:dapr-creator-binding:${UIPATH_NAMESPACE}
         rolebinding:gitops-dapr-creator-binding:${UIPATH_NAMESPACE}
         rolebinding:manage-crds-binding
-        argocd:dapr
         crd:components.dapr.io
         crd:configurations.dapr.io
         crd:subscriptions.dapr.io
@@ -221,6 +220,7 @@ function show_help {
     echo "  --istioNamespace NAMESPACE         Custom namespace for Istio components (default: istio-system)"
     echo "  --uipathNamespace NAMESPACE        Custom namespace for UiPath components (default: uipath)"
     echo "  --argocdNamespace NAMESPACE        Custom namespace for ArgoCD components (default: argocd)"
+    echo "  --shared-argocd                    Mark ArgoCD as shared and do not delete it"
     echo
     echo "Examples:"
     echo "  $0 k8s --excluded istio,redis                # Keep istio and redis components, delete all others"
@@ -266,7 +266,7 @@ function check_prerequisites {
 }
 
 function get_all_components {
-    local components="istio argocd uipath cert_manager network_policies gatekeeper falco istio_configure"
+    local components="uipath istio argocd cert_manager network_policies gatekeeper falco istio_configure"
     if [ "$K8S_DISTRIBUTION" = "openshift" ]; then
         components="$components shared_gitops"
     else
@@ -276,12 +276,32 @@ function get_all_components {
     echo "$components"
 }
 
+function map_component_name {
+    local component="$1"
+    
+    # Map dash-separated names to underscore-separated names
+    case "$component" in
+        "cert-manager")
+            echo "cert_manager"
+            ;;
+        "network-policies")
+            echo "network_policies"
+            ;;
+        "istio-configure")
+            echo "istio_configure"
+            ;;
+        *)
+            echo "$component"
+            ;;
+    esac
+}
+
 function read_excluded_from_json {
     local file="$1"
 
     if [ -f "$file" ]; then
-        if command -v jq; then
-            if jq -e '.exclude_components' "$file"; then
+        if command -v jq >/dev/null 2>&1; then
+            if jq -e '.exclude_components' "$file" >/dev/null 2>&1; then
                 local excluded_json=$(jq -r '.exclude_components | join(",")' "$file")
                 if [ "$excluded_json" != "null" ] && [ -n "$excluded_json" ]; then
                     echo "$excluded_json"
@@ -415,7 +435,14 @@ function delete_helm_chart {
             if $VERBOSE; then
                 echo "Uninstalling helm chart: $chart in namespace $namespace"
             fi
-            helm uninstall "$chart" -n "$namespace" || echo "Failed to uninstall $chart in $namespace"
+            # Check if the release exists before trying to uninstall
+            if helm list -n "$namespace" | grep -q "^$chart[[:space:]]"; then
+                helm uninstall "$chart" -n "$namespace" || echo "Failed to uninstall $chart in $namespace"
+            else
+                if $VERBOSE; then
+                    echo "Helm release $chart not found in namespace $namespace, skipping"
+                fi
+            fi
         fi
     else
         if $DRY_RUN; then
@@ -424,7 +451,14 @@ function delete_helm_chart {
             if $VERBOSE; then
                 echo "Uninstalling helm chart: $chart (default namespace)"
             fi
-            helm uninstall "$chart" || echo "Failed to uninstall $chart"
+            # Check if the release exists before trying to uninstall
+            if helm list | grep -q "^$chart[[:space:]]"; then
+                helm uninstall "$chart" || echo "Failed to uninstall $chart"
+            else
+                if $VERBOSE; then
+                    echo "Helm release $chart not found, skipping"
+                fi
+            fi
         fi
     fi
 }
@@ -480,15 +514,15 @@ function delete_rolebinding {
 }
 
 function delete_argocd_app {
-  local app=$1
+  local apps="$1"
 
   if $DRY_RUN; then
-    echo "DRY-RUN: Would delete ArgoCD application: $app"
+    echo "DRY-RUN: Would delete ArgoCD applications: $apps"
     return
   fi
 
   if $VERBOSE; then
-    echo "Deleting ArgoCD application: $app"
+    echo "Triggering deletion of ArgoCD applications: $apps"
   fi
 
   # Determine which namespaces to check based on K8S_DISTRIBUTION
@@ -496,28 +530,166 @@ function delete_argocd_app {
   if [ "$K8S_DISTRIBUTION" = "openshift" ]; then
     namespaces+=("openshift-gitops")
   fi
-
-  # Process each relevant namespace
+  
+  # Group applications by namespace and delete in single commands
   for ns in "${namespaces[@]}"; do
-    # Check if application exists in this namespace
-    if ! $K8S_CMD get application "$app" -n "$ns" --ignore-not-found=true; then
-      continue  # Skip to next namespace if app doesn't exist in this one
-    fi
-
-    # Check if application has finalizers
-    local has_finalizers=$($K8S_CMD get application "$app" -n "$ns" -o jsonpath='{.metadata.finalizers[0]}' 2>&1)
-
-    if [ -n "$has_finalizers" ]; then
-      if $VERBOSE; then
-        echo "Removing finalizers from application $app in namespace $ns"
+    local apps_in_namespace=""
+    
+    # Check each application to see if it exists in this namespace
+    for app in $apps; do
+      if $K8S_CMD get applications.argoproj.io "$app" -n "$ns" --ignore-not-found=true >/dev/null 2>&1; then
+        # Check if application has finalizers and remove them first
+        local has_finalizers=$($K8S_CMD get applications.argoproj.io "$app" -n "$ns" -o jsonpath='{.metadata.finalizers[0]}' 2>&1)
+        
+        if [ -n "$has_finalizers" ] && [ "$has_finalizers" != "null" ]; then
+          if $VERBOSE; then
+            echo "Removing finalizers from application $app in namespace $ns"
+          fi
+          # Remove finalizers using patch (run in background)
+          $K8S_CMD patch applications.argoproj.io "$app" -n "$ns" --type json --patch='[{"op": "remove", "path": "/metadata/finalizers"}]' 2>/dev/null &
+        fi
+        
+        # Add to the list for single command deletion
+        if [ -z "$apps_in_namespace" ]; then
+          apps_in_namespace="$app"
+        else
+          apps_in_namespace="$apps_in_namespace $app"
+        fi
       fi
-      # Remove finalizers using patch
-      $K8S_CMD patch application "$app" -n "$ns" --type json --patch='[{"op": "remove", "path": "/metadata/finalizers"}]'
+    done
+    
+    # Delete all applications in this namespace in ONE command (like: kubectl delete application app1 app2 app3)
+    if [ -n "$apps_in_namespace" ]; then
+      if $VERBOSE; then
+        echo "Deleting applications in namespace $ns: $K8S_CMD delete applications.argoproj.io $apps_in_namespace -n $ns"
+      fi
+      $K8S_CMD delete applications.argoproj.io $apps_in_namespace -n "$ns" --ignore-not-found=true &
     fi
-
-    # Delete the application
-    $K8S_CMD delete application "$app" -n "$ns" --ignore-not-found=true
   done
+}
+
+function force_remove_argocd_finalizers {
+  if $DRY_RUN; then
+    echo "DRY-RUN: Would force remove finalizers from stuck ArgoCD applications"
+    return
+  fi
+
+  if $VERBOSE; then
+    echo "Checking for stuck ArgoCD applications and forcing finalizer removal..."
+  fi
+
+  # Determine which namespaces to check based on K8S_DISTRIBUTION
+  local namespaces=("$ARGOCD_NAMESPACE")
+  if [ "$K8S_DISTRIBUTION" = "openshift" ]; then
+    namespaces+=("openshift-gitops")
+  fi
+  
+  for ns in "${namespaces[@]}"; do
+    # Get all applications with finalizers
+    local apps_with_finalizers=$($K8S_CMD get applications.argoproj.io -n "$ns" -o jsonpath='{range .items[?(@.metadata.finalizers)]}{.metadata.name}{"\n"}{end}' 2>/dev/null)
+    
+    if [ -n "$apps_with_finalizers" ]; then
+      while IFS= read -r app_name; do
+        [ -z "$app_name" ] && continue
+        
+        if $VERBOSE; then
+          echo "Forcing removal of finalizers from application: $app_name in namespace $ns"
+        fi
+        
+        # Force remove finalizers using multiple methods (run in background)
+        $K8S_CMD patch applications.argoproj.io "$app_name" -n "$ns" --type json --patch='[{"op": "remove", "path": "/metadata/finalizers"}]' 2>/dev/null &
+        
+        # Also try to force delete with immediate grace period (run in background)
+        $K8S_CMD delete applications.argoproj.io "$app_name" -n "$ns" --ignore-not-found=true --force --grace-period=0 2>/dev/null &
+        
+      done <<< "$apps_with_finalizers"
+    fi
+  done
+}
+
+function wait_for_argocd_apps_deletion {
+  if $DRY_RUN; then
+    echo "DRY-RUN: Would wait for ArgoCD applications to be deleted"
+    return
+  fi
+
+  if $VERBOSE; then
+    echo "Waiting for all ArgoCD applications to be deleted..."
+  fi
+
+  # Determine which namespaces to check based on K8S_DISTRIBUTION
+  local namespaces=("$ARGOCD_NAMESPACE")
+  if [ "$K8S_DISTRIBUTION" = "openshift" ]; then
+    namespaces+=("openshift-gitops")
+  fi
+  
+  # Wait for all background deletion jobs to complete
+  wait
+
+  # Additional wait to ensure all applications are fully deleted
+  local max_attempts=30
+  local attempt=0
+  local all_deleted=false
+
+  while [ $attempt -lt $max_attempts ] && [ "$all_deleted" = false ]; do
+    all_deleted=true
+    
+    for ns in "${namespaces[@]}"; do
+      # Check if any applications still exist
+      local remaining_apps=$($K8S_CMD get applications.argoproj.io -n "$ns" --no-headers 2>/dev/null | wc -l)
+      if [ "$remaining_apps" -gt 0 ]; then
+        all_deleted=false
+        
+        # Check for stuck applications with finalizers or deletion errors
+        local stuck_apps=$($K8S_CMD get applications.argoproj.io -n "$ns" -o jsonpath='{range .items[*]}{.metadata.name}{" "}{.metadata.deletionTimestamp}{" "}{.metadata.finalizers[0]}{" "}{.status.conditions[?(@.type=="DeletionError")].message}{"\n"}{end}' 2>/dev/null)
+        
+        if [ -n "$stuck_apps" ]; then
+          while IFS= read -r line; do
+            [ -z "$line" ] && continue
+            local app_name=$(echo "$line" | awk '{print $1}')
+            local deletion_timestamp=$(echo "$line" | awk '{print $2}')
+            local finalizer=$(echo "$line" | awk '{print $3}')
+            local error_msg=$(echo "$line" | awk '{for(i=4;i<=NF;i++) printf "%s ", $i; print ""}' | sed 's/ $//')
+            
+            # If app has deletion timestamp and finalizer, force remove finalizer
+            if [ -n "$deletion_timestamp" ] && [ -n "$finalizer" ] && [ "$finalizer" != "null" ]; then
+              if $VERBOSE; then
+                echo "Application $app_name is stuck in deletion. Forcing removal of finalizer: $finalizer"
+                if [ -n "$error_msg" ]; then
+                  echo "  Error: $error_msg"
+                fi
+              fi
+              
+              # Force remove finalizers
+              $K8S_CMD patch applications.argoproj.io "$app_name" -n "$ns" --type json --patch='[{"op": "remove", "path": "/metadata/finalizers"}]' 2>/dev/null
+              
+              # Also try to force delete the application
+              $K8S_CMD delete applications.argoproj.io "$app_name" -n "$ns" --ignore-not-found=true --force --grace-period=0 2>/dev/null
+            fi
+          done <<< "$stuck_apps"
+        fi
+        
+        if $VERBOSE; then
+          echo "Still waiting for $remaining_apps applications to be deleted in namespace $ns..."
+        fi
+        break
+      fi
+    done
+
+    if [ "$all_deleted" = false ]; then
+      sleep 2
+      attempt=$((attempt + 1))
+    fi
+  done
+
+  if [ "$all_deleted" = true ]; then
+    if $VERBOSE; then
+      echo "All ArgoCD applications have been successfully deleted."
+    fi
+  else
+    echo "Warning: Some ArgoCD applications may still be in deletion process after $((max_attempts * 2)) seconds."
+    echo "You may need to manually force delete remaining applications."
+  fi
 }
 
 function delete_namespace {
@@ -603,14 +775,35 @@ function delete_crd_instances {
             echo "Deleting all instances of CRD: $crd"
         fi
 
-        if $K8S_CMD get crd "$crd"; then
-            local api_resource=$($K8S_CMD api-resources --api-group=$(echo "$crd" | cut -d. -f2-) | grep $(echo "$crd" | cut -d. -f1) | awk '{print $1}')
+        if $K8S_CMD get crd "$crd" >/dev/null 2>&1; then
+            # Get the API group from the CRD
+            local api_group=$(echo "$crd" | cut -d. -f2-)
+            local resource_name=$(echo "$crd" | cut -d. -f1)
+            
+            # Get the API resource more safely
+            local api_resource=""
+            if [ -n "$api_group" ]; then
+                api_resource=$($K8S_CMD api-resources --api-group="$api_group" 2>/dev/null | grep "^$resource_name[[:space:]]" | head -1 | awk '{print $1}')
+            else
+                api_resource=$($K8S_CMD api-resources 2>/dev/null | grep "^$resource_name[[:space:]]" | head -1 | awk '{print $1}')
+            fi
 
             if [ -n "$api_resource" ]; then
-                local instances=$($K8S_CMD get "$api_resource" --all-namespaces -o jsonpath='{range .items[*]}{.metadata.namespace}{" "}{.metadata.name}{"\n"}{end}' 2>&1)
+                if $VERBOSE; then
+                    echo "Found API resource: $api_resource for CRD: $crd"
+                fi
+                
+                # Get instances more safely
+                local instances=""
+                if [ "$api_group" = "argoproj.io" ]; then
+                    # Special handling for ArgoCD resources
+                    instances=$($K8S_CMD get "$api_resource" --all-namespaces -o jsonpath='{range .items[*]}{.metadata.namespace}{" "}{.metadata.name}{"\n"}{end}' 2>/dev/null | tr -d '\r')
+                else
+                    instances=$($K8S_CMD get "$api_resource" --all-namespaces -o jsonpath='{range .items[*]}{.metadata.namespace}{" "}{.metadata.name}{"\n"}{end}' 2>/dev/null | tr -d '\r')
+                fi
 
                 if [ -n "$instances" ]; then
-                    while read -r line; do
+                    while IFS= read -r line; do
                         [ -z "$line" ] && continue
                         local ns=$(echo "$line" | awk '{print $1}')
                         local name=$(echo "$line" | awk '{print $2}')
@@ -620,6 +813,10 @@ function delete_crd_instances {
                         fi
                         $K8S_CMD delete "$api_resource" "$name" -n "$ns" --ignore-not-found=true
                     done <<< "$instances"
+                fi
+            else
+                if $VERBOSE; then
+                    echo "Could not determine API resource for CRD: $crd"
                 fi
             fi
         else
@@ -635,81 +832,107 @@ function delete_component {
 
     echo "Processing component for deletion: $component_name"
 
-    local component_def
-    eval "component_def=\"\${$component_name}\""
+    # Use a subshell to catch any errors and continue
+    (
+        set -e  # Exit on error within this subshell
+        
+        local component_def
+        eval "component_def=\"\${$component_name}\""
 
-    local temp_file
-    temp_file=$(mktemp)
-    parse_component_resources "$component_def" > "$temp_file"
-    source "$temp_file"
-    rm -f "$temp_file"
+        local temp_file
+        temp_file=$(mktemp)
+        parse_component_resources "$component_def" > "$temp_file"
+        source "$temp_file"
+        rm -f "$temp_file"
 
-    for crd in $CRDS; do
-        delete_crd_instances "$crd"
-    done
-
-    for app in $ARGOCD_APPS; do
-        delete_argocd_app "$app"
-    done
-
-    for chart in $HELM_CHARTS; do
-        if echo "$chart" | grep -q ":"; then
-            local chart_name=$(echo "$chart" | cut -d':' -f1)
-            local chart_ns=$(echo "$chart" | cut -d':' -f2)
-            delete_helm_chart "$chart_name" "$chart_ns"
-        else
-            delete_helm_chart "$chart" ""
-        fi
-    done
-
-    for binding in $ROLEBINDINGS; do
-        if echo "$binding" | grep -q ":"; then
-            local binding_name=$(echo "$binding" | cut -d':' -f1)
-            local binding_namespaces=$(echo "$binding" | cut -d':' -f2 | tr ',' ' ')
-
-            for ns in $binding_namespaces; do
-                delete_rolebinding "$binding_name" "$ns"
-            done
-        else
-            delete_rolebinding "$binding" ""
-        fi
-    done
-
-    for role in $ROLES; do
-        if echo "$role" | grep -q ":"; then
-            local role_name=$(echo "$role" | cut -d':' -f1)
-            local role_namespaces=$(echo "$role" | cut -d':' -f2 | tr ',' ' ')
-
-            for ns in $role_namespaces; do
-                delete_role "$role_name" "$ns"
-            done
-        else
-            delete_role "$role" ""
-        fi
-    done
-
-    for pc in $PRIORITY_CLASSES; do
-        delete_priority_class "$pc"
-    done
-
-    if [ "$K8S_DISTRIBUTION" = "openshift" ]; then
-        for op in $OPERATORS; do
-            delete_operator "$op"
+        for crd in $CRDS; do
+            delete_crd_instances "$crd"
         done
-    fi
 
-    if [ "$K8S_DISTRIBUTION" = "openshift" ]; then
-        for sc in $SCCS; do
-            delete_scc "$sc"
+        # Force remove finalizers from any stuck ArgoCD applications first
+        if [ -n "$ARGOCD_APPS" ]; then
+            force_remove_argocd_finalizers
+        fi
+
+        # Trigger all ArgoCD application deletions in parallel
+        if [ -n "$ARGOCD_APPS" ]; then
+            if $DRY_RUN; then
+                echo "DRY-RUN: Would delete ArgoCD applications: $ARGOCD_APPS"
+            else
+                if $VERBOSE; then
+                    echo "Triggering parallel deletion of ArgoCD applications: $ARGOCD_APPS"
+                fi
+                
+                # Delete each ArgoCD application in parallel
+                delete_argocd_app "$ARGOCD_APPS"
+                
+                # Wait for all ArgoCD applications to be deleted
+                wait_for_argocd_apps_deletion
+            fi
+        fi
+
+        for chart in $HELM_CHARTS; do
+            if echo "$chart" | grep -q ":"; then
+                local chart_name=$(echo "$chart" | cut -d':' -f1)
+                local chart_ns=$(echo "$chart" | cut -d':' -f2)
+                delete_helm_chart "$chart_name" "$chart_ns"
+            else
+                delete_helm_chart "$chart" ""
+            fi
         done
-    fi
 
-    for ns in $NAMESPACES; do
-        delete_namespace "$ns"
-    done
+        for binding in $ROLEBINDINGS; do
+            if echo "$binding" | grep -q ":"; then
+                local binding_name=$(echo "$binding" | cut -d':' -f1)
+                local binding_namespaces=$(echo "$binding" | cut -d':' -f2 | tr ',' ' ')
 
-    echo "Completed processing component: $component_name"
-    echo
+                for ns in $binding_namespaces; do
+                    delete_rolebinding "$binding_name" "$ns"
+                done
+            else
+                delete_rolebinding "$binding" ""
+            fi
+        done
+
+        for role in $ROLES; do
+            if echo "$role" | grep -q ":"; then
+                local role_name=$(echo "$role" | cut -d':' -f1)
+                local role_namespaces=$(echo "$role" | cut -d':' -f2 | tr ',' ' ')
+
+                for ns in $role_namespaces; do
+                    delete_role "$role_name" "$ns"
+                done
+            else
+                delete_role "$role" ""
+            fi
+        done
+
+        for pc in $PRIORITY_CLASSES; do
+            delete_priority_class "$pc"
+        done
+
+        if [ "$K8S_DISTRIBUTION" = "openshift" ]; then
+            for op in $OPERATORS; do
+                delete_operator "$op"
+            done
+        fi
+
+        if [ "$K8S_DISTRIBUTION" = "openshift" ]; then
+            for sc in $SCCS; do
+                delete_scc "$sc"
+            done
+        fi
+
+        for ns in $NAMESPACES; do
+            delete_namespace "$ns"
+        done
+
+        echo "Completed processing component: $component_name"
+        echo
+    ) || {
+        echo "Warning: Error occurred while processing component '$component_name'. Continuing with next component..."
+        echo
+    }
 }
 
 function main {
@@ -761,6 +984,10 @@ function main {
                 ARGOCD_NAMESPACE="$2"
                 shift 2
                 ;;
+            --shared-argocd)
+                ARGOCD_SHARED=true
+                shift
+                ;;
             *)
                 echo "Error: Unknown option: $1"
                 show_help
@@ -774,7 +1001,7 @@ function main {
     if [ -n "$excluded_arg" ]; then
         IFS=',' read -r -a CLI_EXCLUDED <<< "$excluded_arg"
         for comp in "${CLI_EXCLUDED[@]}"; do
-            EXCLUDED_COMPONENTS+=("$comp")
+            EXCLUDED_COMPONENTS+=("$(map_component_name "$comp")")
         done
     fi
 
@@ -783,7 +1010,7 @@ function main {
         if [ -n "$excluded_from_json" ]; then
             IFS=',' read -r -a JSON_EXCLUDED <<< "$excluded_from_json"
             for comp in "${JSON_EXCLUDED[@]}"; do
-                EXCLUDED_COMPONENTS+=("$comp")
+                EXCLUDED_COMPONENTS+=("$(map_component_name "$comp")")
             done
         fi
     fi
@@ -846,17 +1073,47 @@ function main {
         fi
     done
 
+    if $ARGOCD_SHARED; then
+        # Remove argocd and shared_gitops from components_to_delete if present
+        new_components=()
+        for comp in "${components_to_delete[@]}"; do
+            if [ "$comp" != "argocd" ] && [ "$comp" != "shared_gitops" ]; then
+                new_components+=("$comp")
+            fi
+        done
+        components_to_delete=("${new_components[@]}")
+    fi
+
     echo "Components to delete: ${components_to_delete[*]}"
     echo
 
+    local failed_components=()
     for comp in "${components_to_delete[@]}"; do
-        delete_component "$comp"
+        if ! delete_component "$comp"; then
+            failed_components+=("$comp")
+        fi
     done
+
+    if [ ${#failed_components[@]} -gt 0 ]; then
+        echo "Warning: The following components encountered errors during deletion:"
+        for comp in "${failed_components[@]}"; do
+            echo "  - $comp"
+        done
+        echo
+    fi
 
     if $DRY_RUN; then
         echo "Dry run completed. No changes were made."
     else
-        echo "All specified components have been deleted."
+        if [ ${#failed_components[@]} -eq 0 ]; then
+            echo "All specified components have been deleted successfully."
+        else
+            echo "Deletion completed with some errors. Check the warnings above."
+        fi
+    fi
+
+    if $ARGOCD_SHARED; then
+        echo "Disclaimer: ArgoCD is marked as shared (--shared-argocd), so it was not deleted."
     fi
 }
 
