@@ -10,6 +10,7 @@ CLUSTER_CONFIG_FILE=""
 ISTIO_NAMESPACE="istio-system"
 UIPATH_NAMESPACE="uipath"
 ARGOCD_NAMESPACE="argocd"
+ARGOCD_SHARED=false
 
 
 function define_components {
@@ -40,20 +41,24 @@ function define_components {
 #    fi
 
     argocd="
-    helm:argocd:${ARGOCD_NAMESPACE}
     role:argo-secret-role:${ARGOCD_NAMESPACE}
     role:uipath-application-manager:${ARGOCD_NAMESPACE}
     rolebinding:secret-binding:${ARGOCD_NAMESPACE}
     "
 
     if [ "$K8S_DISTRIBUTION" = "openshift" ]; then
-        # For OpenShift, only delete applications, not infrastructure
-        argocd=""
-        argocd+="
+        # For OpenShift, only delete applications, not infrastructure, and DO NOT delete the namespace
+        echo "Using ArgoCD for infrastructure management OpenShift"
+        argocd="
+        role:argo-secret-role:${ARGOCD_NAMESPACE}
+        role:uipath-application-manager:${ARGOCD_NAMESPACE}
+        rolebinding:secret-binding:${ARGOCD_NAMESPACE}
+        crd:applications.argoproj.io
         rolebinding:uipath-application-manager:${ARGOCD_NAMESPACE}
         rolebinding:namespace-reader-rolebinding:${ARGOCD_NAMESPACE}
         "
     else
+        echo "Using ArgoCD for infrastructure management Non OpenShift"
         argocd+="
         namespace:${ARGOCD_NAMESPACE}
         rolebinding:uipath-application-manager-rolebinding:${ARGOCD_NAMESPACE}
@@ -215,6 +220,7 @@ function show_help {
     echo "  --istioNamespace NAMESPACE         Custom namespace for Istio components (default: istio-system)"
     echo "  --uipathNamespace NAMESPACE        Custom namespace for UiPath components (default: uipath)"
     echo "  --argocdNamespace NAMESPACE        Custom namespace for ArgoCD components (default: argocd)"
+    echo "  --shared-argocd                    Mark ArgoCD as shared and do not delete it"
     echo
     echo "Examples:"
     echo "  $0 k8s --excluded istio,redis                # Keep istio and redis components, delete all others"
@@ -978,6 +984,10 @@ function main {
                 ARGOCD_NAMESPACE="$2"
                 shift 2
                 ;;
+            --shared-argocd)
+                ARGOCD_SHARED=true
+                shift
+                ;;
             *)
                 echo "Error: Unknown option: $1"
                 show_help
@@ -1063,6 +1073,17 @@ function main {
         fi
     done
 
+    if $ARGOCD_SHARED; then
+        # Remove argocd and shared_gitops from components_to_delete if present
+        new_components=()
+        for comp in "${components_to_delete[@]}"; do
+            if [ "$comp" != "argocd" ] && [ "$comp" != "shared_gitops" ]; then
+                new_components+=("$comp")
+            fi
+        done
+        components_to_delete=("${new_components[@]}")
+    fi
+
     echo "Components to delete: ${components_to_delete[*]}"
     echo
 
@@ -1089,6 +1110,10 @@ function main {
         else
             echo "Deletion completed with some errors. Check the warnings above."
         fi
+    fi
+
+    if $ARGOCD_SHARED; then
+        echo "Disclaimer: ArgoCD is marked as shared (--shared-argocd), so it was not deleted."
     fi
 }
 
