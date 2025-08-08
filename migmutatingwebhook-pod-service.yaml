@@ -1,0 +1,39 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: migmutatingwebhook-svc
+  namespace: uipath
+spec:
+  ports:
+  - protocol: TCP
+    port: 9443
+    targetPort: 9443
+  selector:
+    app.kubernetes.io/name: migmutatingwebhook
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: migmutatingwebhook
+  namespace: uipath
+  labels:
+    app.kubernetes.io/name: migmutatingwebhook
+spec:
+  containers:
+  - name: migmutatingwebhook
+    image: localhost:30071/mimutatingwebhook:0.1.10
+    resources:
+      limits:
+        cpu: 1
+        memory: 1Gi
+      requests:
+        cpu: 100m
+        memory: 256Mi
+    volumeMounts:
+    - name: migconfiguration
+      mountPath: /config
+      readOnly: true
+  volumes:
+  - name: migconfiguration
+    configMap:
+      name: migconfiguration
