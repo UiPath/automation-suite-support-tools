@@ -106,7 +106,7 @@ func main() {
 		CaPEM:         caPEM,
 	}
 
-	log.Print("Starting webhook server. Listening on port 9443")
+	log.Print("Starting webhook server. Listening on port 9443 ")
 
 	handler := http.NewServeMux()
 	handler.HandleFunc("/webhook", webhookserver.PostWebhook)

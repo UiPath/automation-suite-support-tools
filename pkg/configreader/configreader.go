@@ -28,7 +28,7 @@ type Configuratie struct {
 	ClassicDU ClassicDU `json:"classic-du"`
 }
 
-func Readconfig() ( Configuratie) {
+func Readconfig() Configuratie {
 
 	configData, err := os.ReadFile("/config/config.json")
 

@@ -199,7 +199,7 @@ func GetCertSecretData() *coreV1.Secret {
 
 	if err != nil {
 
-		log.Print("Unable to retrieve certificate secret ")
+		log.Print("Unable to retrieve certificate secret")
 
 	}
 

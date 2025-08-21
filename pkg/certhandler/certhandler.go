@@ -69,7 +69,7 @@ func Certsetup() (serverTLSConf *tls.Config, clientTLSConf *tls.Config, caPEMByt
 			StreetAddress: []string{""},
 			PostalCode:    []string{""},
 		},
-		IPAddresses:  []net.IP{net.IPv4(127, 0, 0, 1), net.IPv4(10,0,0,21), net.IPv6loopback},
+		IPAddresses:  []net.IP{net.IPv4(127, 0, 0, 1), net.IPv4(10, 0, 0, 21), net.IPv6loopback},
 		NotBefore:    time.Now(),
 		NotAfter:     time.Now().AddDate(10, 0, 0),
 		SubjectKeyId: []byte{1, 2, 3, 4, 6},
