@@ -17,6 +17,8 @@ type Server struct {
 	CaPEM         []byte
 }
 
+
+
 func (s Server) PostWebhook(w http.ResponseWriter, r *http.Request) {
 
 	var reviewRequest k8sadmissionReview.AdmissionReview
@@ -27,7 +29,9 @@ func (s Server) PostWebhook(w http.ResponseWriter, r *http.Request) {
 
 	//validate read configuration
 	
-	validconfig := configvalidator.ClassicDU_ValidateConfig(migconfig.ClassicDU.Resource)
+	validconfig := configvalidator.ClassicDU_ValidateConfig(migconfig.ClassicDU.Resource) 
+	
+	
 	
 	if validconfig == false {
 		
