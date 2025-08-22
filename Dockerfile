@@ -4,12 +4,12 @@ RUN apk add --no-cache git
 WORKDIR /go/src/app
 COPY . .
 RUN go mod tidy
-RUN go build -o /go/bin/app -v ./
+RUN go build -o /go/bin/migmutatingwebhook -v ./
 
 #final stage
 FROM alpine:3.22
 RUN apk --no-cache add ca-certificates
-COPY --from=builder /go/bin/app /app
-ENTRYPOINT /app
+COPY --from=builder /go/bin/migmutatingwebhook /app/
+ENTRYPOINT /app/migmutatingwebhook
 LABEL Name=go Version=1.24.4
 EXPOSE 9443

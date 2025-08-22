@@ -5,7 +5,6 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/pem"
-	"fmt"
 	"log"
 	"migmutatingwebhook/pkg/certhandler"
 	"migmutatingwebhook/pkg/secretmanager"
@@ -33,7 +32,7 @@ func main() {
 
 	if certSecretExists == true {
 
-		fmt.Print("Secret was found. Starting server using existing tls configuration")
+		log.Print("Secret was found. Starting server using existing tls configuration")
 
 		migmutatingwebhookTLSSecret := secretmanager.GetCertSecretData()
 

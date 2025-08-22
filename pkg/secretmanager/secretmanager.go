@@ -3,7 +3,6 @@ package secretmanager
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -149,7 +148,7 @@ func CreateCertSecret(serverCert, serverKey, caCert string) {
 		log.Fatalln("Failed to create certificate secret ", err)
 	}
 
-	fmt.Println("Certificate secret created")
+	log.Print("Certificate secret created")
 
 }
 
