@@ -80,7 +80,7 @@ func (s Server) PostWebhook(w http.ResponseWriter, r *http.Request) {
 
 		templateLabels := job.Spec.Template.Labels
 
-:		for label, value := range templateLabels {
+		for label, value := range templateLabels {
 
 			if label == "app.uipath.com/component" && value == "pipeline" {
 

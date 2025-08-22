@@ -1,7 +1,19 @@
+---
+apiVersion: v1
+data:
+  config.json: "{\n \"modern-du\": {\n    \"enabled\": true,\n        \"mig-settings\":{\n
+    \          \"ocr\": \"mig-1g.12gb\",\n           \"extractor\": \"mig-2g.24gb\",\n
+    \          \"training\": \"mig-1g.12gb\",\n           \"oob\": \"mig-1g.12gb\"\n
+    \       }\n \n },\n \"classic-du\":{\n    \"resource\": \"mig-1g.12gb\"\n  }\n}\n"
+kind: ConfigMap
+metadata:
+  name: migconfiguration
+  namespace: uipath
+---
 apiVersion: v1
 kind: Service
 metadata:
-  name: migmutatingwebhook-svc
+  name: migmutatingwebhook
   namespace: uipath
 spec:
   ports:
@@ -11,29 +23,86 @@ spec:
   selector:
     app.kubernetes.io/name: migmutatingwebhook
 ---
-apiVersion: v1
-kind: Pod
+apiVersion: apps/v1
+kind: Deployment
 metadata:
   name: migmutatingwebhook
   namespace: uipath
   labels:
     app.kubernetes.io/name: migmutatingwebhook
 spec:
-  containers:
-  - name: migmutatingwebhook
-    image: localhost:30071/mimutatingwebhook:0.1.10
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: migmutatingwebhook
+  template:
+    metadata:
+      creationTimestamp: null
+      labels:
+        app.kubernetes.io/name: migmutatingwebhook
+    spec:
+      containers:
+      - name: migmutatingwebhook
+        image: localhost:30071/migmutatingwebhook:0.1.0
+        env:
+        - name: DEPLOYMENT_NAMESPACE
+          value: "uipath"
+        resources:
+          limits:
+            cpu: 1
+            memory: 1Gi
+          requests:
+            cpu: 100m
+            memory: 256Mi
+        volumeMounts:
+        - name: migconfiguration
+          mountPath: /config
+          readOnly: true
+      serviceAccount: aicenter-jobs
+      volumes:
+      - name: migconfiguration
+        configMap:
+          name: migconfiguration
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingWebhookConfiguration
+metadata:
+  annotations:
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"apiVersion":"admissionregistration.k8s.io/v1","kind":"MutatingWebhookConfiguration","metadata":{"annotations":{},"name":"migmutatingwebhookconfiguration"},"webhooks":[{"admissionReviewVersions":["v1","v1beta1"],"clientConfig":{"caBundle":"LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSUZ2ekNDQTZlZ0F3SUJBZ0lDQitNd0RRWUpLb1pJaHZjTkFRRUxCUUF3YXpFTE1Ba0dBMVVFQmhNQ1VrOHgKQ1RBSEJnTlZCQWdUQURFU01CQUdBMVVFQnhNSlFuVmphR0Z5WlhOME1Ra3dCd1lEVlFRSkV3QXhDVEFIQmdOVgpCQkVUQURFUE1BMEdBMVVFQ2hNR1ZXbFFZWFJvTVJZd0ZBWURWUVFERXcxamJIVnpkR1Z5TG14dlkyRnNNQjRYCkRUSTFNRGN4TnpFeE1UVXhPVm9YRFRNMU1EY3hOekV4TVRVeE9Wb3dVekVMTUFrR0ExVUVCaE1DVWs4eENUQUgKQmdOVkJBZ1RBREVTTUJBR0ExVUVCeE1KUW5WamFHRnlaWE4wTVFrd0J3WURWUVFKRXdBeENUQUhCZ05WQkJFVApBREVQTUEwR0ExVUVDaE1HVldsUVlYUm9NSUlDSWpBTkJna3Foa2lHOXcwQkFRRUZBQU9DQWc4QU1JSUNDZ0tDCkFnRUE0aHBmVVlOYmRZUnZSSTdvdk1zTndZMnNCQWo5U3pFRXNZUlZVcEFIMWZwQnVzSkVwN2VQa08xR1MyR2MKc3I4RUlqTHFEQXdMMTZuYVFpKzdwR2h6ajQ1NjM2eHZIU0NNODBRMEdRYjNlTGU0a0t3aXEzQ3NGYmNTR3B6RgpVU1ZMOGVvbm1ZSXVZelI4WEU1Qm5MbTdQbGVoT2twd3lwK3NzOG1FVSswTEtqWUFyb0Z1TGNSMVpsQjRrQmZFCjNpeFJaclNXY2tnbTlCYjFDVWpTUk1JK1lMZ0dhd1dQVlVKdXhBU0VVaXJDaktwNk04U3FDWkpUajQrdVFSNDEKR1JPSU03R0RJNnZhejZwZnBpTUM0KzZBQzYwNjB0Z1I5bkxpSStEVmwwb3oxOFExQXcrdGhXcnpCbW1qRlRHSwo0Z3FhMUFGOHVMM1drdDdRMmxLR082OXUxcWY3WmxWUzQ2dkNQZVhFQUJLU3hYWS9kRmVmYlIzOVB5UGFOMGxnClRBSzVjQlRaZmdoL1pGMEFtdlhqbnlKazJtdWMreGZ2YWx1RC9BSkg1WDVaS2dpNEFva0d4MmtPWmdGWU11a2oKNnZsVnVOL0prQVh0eC9wNzdsaVJGcHl6MWNNdXVYL2ZCbXhjdzd4ZXJEbU1oOEdWYVNXM0lEaW11WHVSN3U0VQpyTEtia3hXZ21sUDduL01BYmJWNzZ0bVhPZlVuUHpqNkV6ZUh3aXI5WGdSYzJQcDZEU05SRk1sVGpLc2F1bXhNCkMrVVJRVkViVzlabTVLS0w5eXlSM3VlR243Vnlsbnd3MEhRVjl2WEc0OWVoS0h4QjVvSnFXVFE4cU5tUHRGdEcKSjM4QS94RXZXTWI2ZHJsT2JobXI4cTdoUFVnMXVzbEtMTkdhVnJPcVBxY0VsL01DQXdFQUFhT0JoRENCZ1RBTwpCZ05WSFE4QkFmOEVCQU1DQjRBd0hRWURWUjBsQkJZd0ZBWUlLd1lCQlFVSEF3SUdDQ3NHQVFVRkJ3TUJNQTRHCkExVWREZ1FIQkFVQkFnTUVCakJBQmdOVkhSRUVPVEEzZ2gxdGFXZHRkWFJoZEdsdVozZGxZbWh2YjJzdWRXbHcKWVhSb0xuTjJZNGNFZndBQUFZY1FBQUFBQUFBQUFBQUFBQUFBQUFBQUFUQU5CZ2txaGtpRzl3MEJBUXNGQUFPQwpBZ0VBU2k0bGdKQTFYSUdwTlJ0TlpYdll1QU5HR0xxY2dPYXhyK3hOQXVheVlmT202emFYSDJSKzFBUDVGVGV0Ci96SFcvcFU3THlxOEljamxnajcyYUFoQ3gwbjFQQnhTcVhGUGVQWVNwOFc3akFVUUpjVWhYSDloeTZSamZDQWsKd1FaMkVjTmVLdWlubXB1NnljNjEzRW1UQlNyM3drWmVQODZmOHNvekNjaXpWdEZHRFI3N090TUM0Mk91ZWpBSwo1M2lpcU5sU3NkYVhzK3Bremo1S015WXlqNWwzUVZzWE9BZk5xYWRuUDhYSkhieHo2Qy9CMzV1cktSM1cxbjRQCnNvaElxVko0YmhwckNIT1p0bW1DcU9OZ1BwOWh3d0pvT3hHUHJnYlg5SEZIYW5FN1I0eWJuQUxwYUZnSWM2bHkKdWVVOTl3KzRKYXR3Yk1Rc1E4b0g4bnE4emhyMEFBei9HTTRTQ2xVODR2TmxpTTR4VjB0Z3JSWnJheEZPN0FQOApPZnBGc0dML2o1QStnYWp3Nm5uc1V3UjB0ZGxpWkYvL1BPQjBwRStwV0NBTzk3cCtlcklBd1NndVd0RGpubUhZCnJkaWJ4SjFwYjlKdGwrV3hXOVhRSnJCMEhxVGk5Z25wdC9IcTRHNkRIMlYwYjBmR0pWUGFMc2RGbTh4VVczNjgKK0JiRkpXYmlPZEFtSUNOTkg4VGNOMjJqbmhYd1UwMTRCLzVIbUI3bjhmTEEvMUQzQm04WmxwMy9jTWI5Q3Nvcwo3NlZaYUp0NHFvMzZUYWdIUWdvenVCbHhNSk9iVGU4cEFodzZSRDBSUVQxaTZRTkZ6dDBqUkUvdkI0L3Nhc0xXCnI2dzhnY1ViTGJiMDNrVnRvcDgvRnhwQkZoeTZxWmFWL0VQR1hXSHlzVHZCZXZNPQotLS0tLUVORCBDRVJUSUZJQ0FURS0tLS0tCgo=","service":{"name":"migmutatingwebhook","namespace":"uipath","path":"/webhook","port":9443}},"name":"migmutatingwebhook.uipath.svc","namespaceSelector":{"matchLabels":{"kubernetes.io/metadata.name":"uipath"}},"rules":[{"apiGroups":[""],"apiVersions":["v1"],"operations":["CREATE"],"resources":["jobs","deployments"]}],"sideEffects":"None","timeoutSeconds":15}]}
+  name: migmutatingwebhookconfiguration
+  namespace: uipath
+webhooks:
+- admissionReviewVersions:
+  - v1
+  - v1beta1
+  clientConfig:
+    caBundle:
+    service:
+      name: migmutatingwebhook
+      namespace: uipath
+      path: /webhook
+      port: 9443
+  failurePolicy: Fail
+  matchPolicy: Equivalent
+  name: migmutatingwebhook.uipath.svc
+  namespaceSelector:
+    matchLabels:
+      kubernetes.io/metadata.name: uipath
+  objectSelector: {}
+  reinvocationPolicy: Never
+  rules:
+  - apiGroups:
+    - ""
+    - batch
+    apiVersions:
+    - v1
+    - v1beta1
+    operations:
+    - CREATE
     resources:
-      limits:
-        cpu: 1
-        memory: 1Gi
-      requests:
-        cpu: 100m
-        memory: 256Mi
-    volumeMounts:
-    - name: migconfiguration
-      mountPath: /config
-      readOnly: true
-  volumes:
-  - name: migconfiguration
-    configMap:
-      name: migconfiguration
+    - jobs
+    scope: '*'
+  sideEffects: None
+  timeoutSeconds: 15
+
