@@ -1,0 +1,15 @@
+{
+ "modern-du": {
+    "enabled": true,
+	"mig-settings":{
+	   "ocr": "mig-1g.12gb",
+	   "extractor": "mig-2g.24gb",
+	   "training": "mig-1g.12gb",
+	   "oob": "mig-1g.12gb"
+	}
+ 
+ },
+ "classic-du":{
+    "resource": "mig-1g.20gb"
+  }
+}
