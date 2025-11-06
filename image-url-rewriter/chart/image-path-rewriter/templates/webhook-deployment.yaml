@@ -1,0 +1,58 @@
+---
+kind: Deployment
+apiVersion: {{ include "common.capabilities.deployment.apiVersion" . }}
+metadata:
+  name: {{ include "image-path-rewriter.fullname" . }}
+  annotations:
+    app.kubernetes.io/name: {{ include "image-path-rewriter.fullname" . }}
+    helm.sh/chart: {{ include "image-path-rewriter.chart" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    helm.sh/hook-weight: "{{ .Values.hookWeight }}"
+  labels:
+    app: {{ include "image-path-rewriter.fullname" . }}
+spec:
+  replicas: {{ .Values.deployment.replicas }}
+  selector:
+    matchLabels:
+      app: {{ include "image-path-rewriter.fullname" . }}
+  template:
+    metadata:
+      labels:
+        app: {{ include "image-path-rewriter.fullname" . }}
+    spec:
+      {{- include "common.uipathImagePullSecrets" . | indent 6 }}
+      securityContext:
+        runAsNonRoot: true
+      {{- include "common.node-selector" . | nindent 6 }}
+      containers:
+        - name: image-url-rewriter
+          image: {{ template "common.uipathRegistry" . }}{{ .Values.deployment.imageName }}:{{ .Values.deployment.imageTag }}
+          imagePullPolicy: Always
+          args:
+            - -certDir=/etc/webhook/certs
+            - -uipathNamespace={{ .Release.Namespace }}
+            - -istioNamespace={{ .Values.istioNamespace }}
+            - -targetRegistryNamespace={{ .Values.targetRegistryNamespace }}
+            - -registryUrl={{ .Values.targetRegistryUrl }}
+            - -port=8443
+          volumeMounts:
+            - name: webhook-certs
+              mountPath: /etc/webhook/certs
+              readOnly: true
+            - name: webhook-logs
+              mountPath: /tmp
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            privileged: false
+            runAsNonRoot: true
+            capabilities:
+              drop: ["ALL"]
+          {{- include "common.capabilities.resourceusage.config" .Values.resources | nindent 10 }}
+      volumes:
+        - name: webhook-certs
+          secret:
+            secretName: {{ include "image-path-rewriter.fullname" . }}-cert
+        - name: webhook-logs
+          emptyDir: {}

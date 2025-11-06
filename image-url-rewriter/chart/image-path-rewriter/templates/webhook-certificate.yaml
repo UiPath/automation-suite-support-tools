@@ -1,0 +1,18 @@
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "image-path-rewriter.fullname" . }}-cert
+  annotations:
+    app.kubernetes.io/name: {{ include "image-path-rewriter.fullname" . }}-cert
+    helm.sh/chart: {{ include "image-path-rewriter.chart" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    helm.sh/hook-weight: "{{ .Values.hookWeightDependencies }}"
+spec:
+  secretName: {{ include "image-path-rewriter.fullname" . }}-cert
+  dnsNames:
+    - {{ include "image-path-rewriter.fullname" . }}-service.{{ .Release.Namespace }}.svc
+    - {{ include "image-path-rewriter.fullname" . }}-service.{{ .Release.Namespace }}.svc.cluster.local
+  issuerRef:
+    name: {{ include "image-path-rewriter.fullname" . }}-issuer

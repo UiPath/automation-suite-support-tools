@@ -1,0 +1,6 @@
+dependencies:
+- name: common
+  repository: oci://sfbrdevhelmweacr.azurecr.io/helm
+  version: 2025.1006.17
+digest: sha256:8d36931ce9e3989c2e4ef932070a02f38a0e8c4d0957279bfdc5c9291f2fafb2
+generated: "2025-11-06T12:27:30.097704+05:30"

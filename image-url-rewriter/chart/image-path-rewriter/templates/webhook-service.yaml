@@ -1,0 +1,20 @@
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "image-path-rewriter.fullname" . }}-service
+  labels:
+    app: {{ include "image-path-rewriter.fullname" . }}
+  annotations:
+    app.kubernetes.io/name: {{ include "image-path-rewriter.fullname" . }}-service
+    helm.sh/chart: {{ include "image-path-rewriter.chart" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    helm.sh/hook-weight: "{{ .Values.hookWeight }}"
+spec:
+  ports:
+  - port: 443
+    targetPort: 8443
+  selector:
+    app: {{ include "image-path-rewriter.fullname" . }}
+
