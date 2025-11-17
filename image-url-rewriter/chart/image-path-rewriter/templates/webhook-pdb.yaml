@@ -1,0 +1,10 @@
+---
+kind: PodDisruptionBudget
+apiVersion: {{ include "common.capabilities.policy.apiVersion" . }}
+metadata:
+  name: {{ include "image-path-rewriter.fullname" . }}-pdb
+spec:
+  minAvailable: {{ .Values.pdb.minAvailable }}
+  selector:
+    matchLabels:
+      app: {{ include "image-path-rewriter.fullname" . }}

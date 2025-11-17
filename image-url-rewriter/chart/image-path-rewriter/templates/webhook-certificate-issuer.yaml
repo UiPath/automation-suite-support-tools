@@ -1,0 +1,14 @@
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: {{ include "image-path-rewriter.fullname" . }}-issuer
+  annotations:
+    app.kubernetes.io/name: {{ include "image-path-rewriter.fullname" . }}-issuer
+    helm.sh/chart: {{ include "image-path-rewriter.chart" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    helm.sh/hook-weight: "{{ .Values.hookWeightDependencies }}"
+spec:
+  selfSigned: {}
+

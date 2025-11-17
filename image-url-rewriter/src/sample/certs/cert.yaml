@@ -1,0 +1,27 @@
+apiVersion: cert-manager.io/v1alpha2
+kind: Issuer
+metadata:
+  name: image-url-rewriter-webhook-issuer
+  namespace: default
+  annotations:
+    helm.sh/hook: pre-install
+    helm.sh/hook-weight: "-1002"
+spec:
+  selfSigned: {}
+
+---
+apiVersion: cert-manager.io/v1alpha2
+kind: Certificate
+metadata:
+  name: image-url-rewriter-webhook-cert
+  namespace: default
+  annotations:
+    helm.sh/hook: pre-install
+    helm.sh/hook-weight: "-1002"
+spec:
+  secretName: image-url-rewriter-webhook-cert
+  dnsNames:
+    - image-url-rewriter-webhook-service.default.svc
+    - image-url-rewriter-webhook-service.default.svc.cluster.local
+  issuerRef:
+    name: image-url-rewriter-webhook-issuer
