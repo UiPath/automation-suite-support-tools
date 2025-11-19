@@ -1,0 +1,56 @@
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingWebhookConfiguration
+metadata:
+   name: "migmutatingwebhookconfiguration"
+   namespace: uipath
+webhooks:
+- name: "migmutatingwebhookconfiguration"
+  namespaceSelector:
+    mathcLabels:
+      kubernetes.io/metadata.name: uipath
+  rules:
+  - apiGroups: [""]
+    apiVersions: ["v1"]
+    operations: ["CREATE"]
+    resources: ["jobs","deployments"]
+  clientConfig:
+    service:
+      namespace: "uipath"
+      name: "migmutatingwebhook"
+      path: "/webhook"
+    caBundle: "placeholder"
+  admissionReviewVersions: ["v1","v1beta1"]
+  sideEffects: None
+  timeoutSeconds: 15
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: migmutatingwebhook-svc
+  namespace: uipath
+spec:
+  ports:
+  - protocol: TCP
+    port: 9443
+	targetPort: 9443
+  selector:
+    app.kubernetes.io/name: migmutatingwebhook
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: migmutatingwebhook
+  namespace: uipath
+  labels:
+    app.kubernetes.io/name: migmutatingwebhook
+spec:
+  containers:
+  - name: migmutatingwebhook
+    image: docker.io/library/migmutatingwebhook:0.1.0
+	resources:
+      limits:
+        cpu: 1
+        memory: 1Gi
+      requests:
+        cpu: 100m
+        memory: 256Mi
