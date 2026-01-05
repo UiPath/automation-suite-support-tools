@@ -59,24 +59,34 @@ The script mounts your NFS volume (same as used by Velero backups) and performs 
 
 Before deploying this solution, ensure the following requirements are met:
 
-### 1. rke2-backup-hook Helm Chart
+### 1. Backup Hook Helm Chart
 
-The `rke2-backup-hook` chart must be installed in your cluster. This is a standard component which was installed alongside Velero and used for Automation Suite backups.
+The backup hook chart must be installed in your cluster. This is a standard component which was installed alongside Velero and used for Automation Suite backups.
+
+**Note:** The chart name differs between versions:
+- **v2024.10.x**: `rke2-backup-hook`
+- **v2023.10.x**: `backup-service`
 
 **Verify installation:**
 ```bash
 helm list -n uipath-infra
 ```
 
-**Expected output:**
+**Expected output (v2024.10.x):**
 ```
 NAME                NAMESPACE       STATUS      CHART
 rke2-backup-hook    uipath-infra    deployed    rke2-backup-hook-x.x.x
 ```
 
+**Expected output (v2023.10.x):**
+```
+NAME                NAMESPACE       STATUS      CHART
+backup-service      uipath-infra    deployed    backup-hook-x.x.x
+```
+
 ### 2. ServiceAccount Permissions
 
-The CronJob reuses the `backup-hook-sa` ServiceAccount from the rke2-backup-hook chart, which has cluster-admin permissions. **No additional RBAC setup is required.**
+The CronJob reuses the `backup-hook-sa` ServiceAccount from the backup hook chart, which has cluster-admin permissions. **No additional RBAC setup is required.**
 
 **Verify ServiceAccount exists:**
 ```bash
@@ -99,10 +109,16 @@ Before applying the YAML, you need to collect three values from your existing cl
 
 #### 1.1 Get Container Image Name
 
-This retrieves the same container image used by the rke2-backup-hook, ensuring compatibility.
+This retrieves the same container image used by the backup hook, ensuring compatibility.
 
+**For v2024.10.x:**
 ```bash
 kubectl -n uipath-infra get pod -l app=rke2-backup-hook -o jsonpath='{.items[0].spec.containers[?(@.name=="backup-hook-service")].image}{"\n"}'
+```
+
+**For v2023.10.x:**
+```bash
+kubectl -n uipath-infra get pod -l app.kubernetes.io/part-of=backup-hook -o jsonpath='{.items[0].spec.containers[?(@.name=="backup-hook-service")].image}{"\n"}'
 ```
 
 **Example output:**
@@ -114,8 +130,14 @@ registry.example.com/uipath/backup-hook-service:1.2.3
 
 #### 1.2 Get NFS Server IP Address
 
+**For v2024.10.x:**
 ```bash
 kubectl -n uipath-infra get pod -l app=rke2-backup-hook -o jsonpath='{range .items[*].spec.volumes[?(@.nfs)]}{.nfs.server}{"\n"}{end}'
+```
+
+**For v2023.10.x:**
+```bash
+kubectl -n uipath-infra get pod -l app.kubernetes.io/part-of=backup-hook -o jsonpath='{range .items[*].spec.volumes[?(@.nfs)]}{.nfs.server}{"\n"}{end}'
 ```
 
 **Example output:**
@@ -127,8 +149,14 @@ kubectl -n uipath-infra get pod -l app=rke2-backup-hook -o jsonpath='{range .ite
 
 #### 1.3 Get NFS Export Path
 
+**For v2024.10.x:**
 ```bash
 kubectl -n uipath-infra get pod -l app=rke2-backup-hook -o jsonpath='{range .items[*].spec.volumes[?(@.nfs)]}{.nfs.path}{"\n"}{end}'
+```
+
+**For v2023.10.x:**
+```bash
+kubectl -n uipath-infra get pod -l app.kubernetes.io/part-of=backup-hook -o jsonpath='{range .items[*].spec.volumes[?(@.nfs)]}{.nfs.path}{"\n"}{end}'
 ```
 
 **Example output:**
@@ -197,6 +225,14 @@ ceph-objectstore-expired-backup-data-cleanup   0 2 * * 0   <none>     False     
 kubectl get configmap ceph-objectstore-expired-backup-data-cleanup -n uipath-infra
 ```
 
+#### 4.3 Manual Trigger (Optional)
+
+To manually trigger a cleanup job without waiting for the schedule:
+
+```bash
+kubectl create job --from=cronjob/ceph-objectstore-expired-backup-data-cleanup manual-cleanup-$(date +%s) -n uipath-infra
+```
+
 ---
 
 ## Usage and Monitoring
@@ -204,14 +240,6 @@ kubectl get configmap ceph-objectstore-expired-backup-data-cleanup -n uipath-inf
 ### Default Schedule
 
 The CronJob runs **weekly at 2:00 AM UTC every Sunday** (`0 2 * * 0`).
-
-### Manual Trigger (Optional)
-
-To manually trigger a cleanup job without waiting for the schedule:
-
-```bash
-kubectl create job --from=cronjob/ceph-objectstore-expired-backup-data-cleanup manual-cleanup-$(date +%s) -n uipath-infra
-```
 
 ### Monitoring Job Execution
 
@@ -354,8 +382,15 @@ kubectl run -it --rm nfs-test --image=busybox --restart=Never -- ping -c 3 <NFS_
 ```
 
 2. Check if NFS path is correct:
+
+**For v2024.10.x:**
 ```bash
 kubectl -n uipath-infra get pod -l app=rke2-backup-hook -o yaml | grep -A5 "nfs:"
+```
+
+**For v2023.10.x:**
+```bash
+kubectl -n uipath-infra get pod -l app.kubernetes.io/part-of=backup-hook -o yaml | grep -A5 "nfs:"
 ```
 
 3. Verify the NFS export path exists on the NFS server
