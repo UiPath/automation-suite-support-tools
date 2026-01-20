@@ -280,21 +280,27 @@ kubectl -n uipath-infra logs -f job/ceph-objectstore-expired-backup-data-cleanup
 The script provides detailed logging with timestamps:
 
 ```
-[INFO] [2024-12-24T02:00:15+0000]: Validating environment and initializing...
-[INFO] [2024-12-24T02:00:15+0000]: Environment validation completed successfully
-[INFO] [2024-12-24T02:00:15+0000]: NFS_PATH: /asbackup
-[INFO] [2024-12-24T02:00:15+0000]: DIFF_DIR: /asbackup/objectstore/backup/s3/diff
-[INFO] [2024-12-24T02:00:15+0000]: VELERO_NAMESPACE: velero
-[INFO] [2024-12-24T02:00:15+0000]: Collecting backups from velero namespace: velero
-[INFO] [2024-12-24T02:00:16+0000]: Found 15 backups to process
-[INFO] [2024-12-24T02:00:16+0000]: Processing backup: daily-backup-20241220
-[INFO] [2024-12-24T02:00:18+0000]: Starting Pass 1: Delete safe expired diffs from backups
-[INFO] [2024-12-24T02:00:18+0000]: Deleting expired and safe diff: /asbackup/objectstore/backup/s3/diff/1734672000 (from backup: daily-backup-20241217)
-[INFO] [2024-12-24T02:00:19+0000]: Pass 1 completed: Expired diff cleanup finished
-[INFO] [2024-12-24T02:00:19+0000]: Starting Pass 2: Orphaned diffs not associated with any velero backup
-[INFO] [2024-12-24T02:00:20+0000]: Deleting orphaned and unreachable diff: /asbackup/objectstore/backup/s3/diff/1734500000
-[INFO] [2024-12-24T02:00:20+0000]: Pass 2 completed: Orphaned diff cleanup finished
-[INFO] [2024-12-24T02:00:20+0000]: Cleanup complete at Tue Dec 24 02:00:20 UTC 2024
+========== Cleaning up NFS Object Store diff data based on expired velero backups (invoked at Tue Jan 20 10:28:02 EST 2026) ==========
+[INFO] [2026-01-20T10:28:02-0500]: Validating environment and initializing...
+[INFO] [2026-01-20T10:28:02-0500]: Environment validation completed successfully
+[INFO] [2026-01-20T10:28:02-0500]: NFS_PATH: /nfs
+[INFO] [2026-01-20T10:28:02-0500]: DIFF_DIR: /nfs/objectstore/backup/s3/diff
+[INFO] [2026-01-20T10:28:02-0500]: VELERO_NAMESPACE: velero
+[INFO] [2026-01-20T10:28:02-0500]: NOW_EPOCH: 1768922882
+[INFO] [2026-01-20T10:28:02-0500]: Collecting backups from velero namespace: velero
+[INFO] [2026-01-20T10:28:03-0500]: Found 1 backups to process
+[INFO] [2026-01-20T10:28:03-0500]: Processing backup: test1
+[INFO] [2026-01-20T10:28:03-0500]: Backup collection completed. Found 1 valid backups
+[INFO] [2026-01-20T10:28:03-0500]: Sorting 1 backups by start epoch...
+[INFO] [2026-01-20T10:28:03-0500]: Sorted backup list:
+test1 | Start: 1768922396 | Complete: 1768922423 | Expiry: 1768922483 | Diff: 1768922413
+[INFO] [2026-01-20T10:28:03-0500]: Starting Pass 1: Delete safe expired diffs from backups
+[INFO] [2026-01-20T10:28:03-0500]: Deleting expired and safe diff: /nfs/objectstore/backup/s3/diff/1768922413 (from backup: test1)
+[INFO] [2026-01-20T10:28:03-0500]: Pass 1 completed: Expired diff cleanup finished
+[INFO] [2026-01-20T10:28:03-0500]: Starting Pass 2: Orphaned diffs not associated with any velero backup
+[INFO] [2026-01-20T10:28:03-0500]: Deleting orphaned and unreachable diff: /nfs/objectstore/backup/s3/diff/1768919047
+[INFO] [2026-01-20T10:28:03-0500]: Pass 2 completed: Orphaned diff cleanup finished
+[INFO] [2026-01-20T10:28:03-0500]: Cleanup complete at Tue Jan 20 10:28:03 EST 2026
 ```
 
 ---
