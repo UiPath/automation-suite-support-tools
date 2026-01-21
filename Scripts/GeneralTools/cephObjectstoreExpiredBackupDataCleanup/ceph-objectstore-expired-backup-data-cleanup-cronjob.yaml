@@ -280,12 +280,12 @@ data:
         return
       }
 
-      start_epoch=$(date --date="$start_time" +%s 2>/dev/null) || {
+      start_epoch=$(date --date="$start_time" +%s) || {
         warn "Failed to convert start_time to epoch for backup $backup_name, skipping"
         return
       }
 
-      completion_epoch=$(date --date="$completion_time" +%s 2>/dev/null) || {
+      completion_epoch=$(date --date="$completion_time" +%s) || {
         warn "Failed to convert completion_time to epoch for backup $backup_name, skipping"
         return
       }
@@ -404,7 +404,7 @@ data:
 
       if [[ -d "$diff_path" ]]; then
         info "Deleting expired and safe diff: $diff_path (from backup: $backup_name)"
-        rm -rf "$diff_path"
+        rm -rfv "$diff_path"
       else
         warn "Diff already deleted or missing: $diff_path"
       fi
@@ -496,7 +496,7 @@ data:
 
       if [[ -d "$diff_path" ]]; then
         info "Deleting orphaned and unreachable diff: $diff_path"
-        rm -rf "$diff_path"
+        rm -rfv "$diff_path"
       else
         warn "Orphaned diff already deleted or missing: $diff_path"
       fi
