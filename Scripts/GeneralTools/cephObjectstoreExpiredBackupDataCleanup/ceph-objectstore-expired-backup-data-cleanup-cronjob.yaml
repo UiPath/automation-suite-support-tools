@@ -1,0 +1,536 @@
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: ceph-objectstore-expired-backup-data-cleanup
+  namespace: uipath-infra
+  labels:
+    cleanup-job: ceph-expired-backup-data
+spec:
+  schedule: "0 2 * * 0"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        metadata:
+          labels:
+            cleanup-job: ceph-expired-backup-data
+        spec:
+          serviceAccountName: backup-hook-sa
+          restartPolicy: OnFailure
+          containers:
+            - name: diff-data-cleanup
+              image: IMAGE_NAME_PLACEHOLDER
+              imagePullPolicy: IfNotPresent
+              command: ["/bin/bash", "/script/ceph-objectstore-expired-backup-data-cleanup.sh", "--nfs-path", "/nfs"]
+              resources:
+                limits:
+                  memory: 1Gi
+                requests:
+                  cpu: 100m
+                  memory: 200Mi
+              securityContext:
+                privileged: false
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+              volumeMounts:
+                - name: nfs-volume
+                  mountPath: /nfs
+                - name: tmp-volume
+                  mountPath: /tmp
+                - name: script-volume
+                  mountPath: /script
+                - name: shared-bin
+                  mountPath: /shared-bin
+              env:
+                - name: PATH
+                  value: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/shared-bin"
+          securityContext:
+            fsGroup: 1000
+            runAsUser: 65534
+            runAsGroup: 65534
+            runAsNonRoot: true
+          volumes:
+            - name: nfs-volume
+              nfs:
+                server: "NFS_SERVER_IP_PLACEHOLDER"
+                path: "NFS_EXPORT_PATH_PLACEHOLDER"
+            - name: tmp-volume
+              emptyDir: {}
+            - name: script-volume
+              configMap:
+                name: ceph-objectstore-expired-backup-data-cleanup
+                defaultMode: 0755
+            - name: shared-bin
+              emptyDir: {}
+---
+# ConfigMap containing the `ceph objectstore expired backup data cleanup` bash script
+# This script queries velero backups and removes expired/orphaned diff directories
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ceph-objectstore-expired-backup-data-cleanup
+  namespace: uipath-infra
+data:
+  ceph-objectstore-expired-backup-data-cleanup.sh: |
+    #!/bin/bash
+    #
+    # =================================================================================
+    # Cleanup Backup Diffs - Standalone Script
+    # =================================================================================
+    #
+    # This script cleans up differential backup directories from NFS objectstore based
+    # on velero backup TTL (Time To Live) expiration and orphan detection.
+    #
+    # The script performs two cleanup passes:
+    #   Pass 1: Removes diff directories for velero backups that have expired
+    #   Pass 2: Removes orphaned diff directories not linked to any existing backup
+    #
+    # Diff directories are named by epoch timestamp and stored at:
+    #   ${NFS_PATH}/objectstore/backup/s3/diff/<epoch>
+    #
+    # legal_placeholder
+    #
+    # =================================================================================
+
+    set -euo pipefail
+
+    # Configuration variables
+    NFS_PATH=""              # Base NFS mount path (provided via --nfs-path argument)
+    DIFF_DIR=""              # Calculated as ${NFS_PATH}/objectstore/backup/s3/diff
+    VELERO_NAMESPACE="velero"  # Namespace where velero backups are stored
+
+    # =================================================================================
+    # Logging Functions
+    # =================================================================================
+
+    function info() {
+      echo "[INFO] [$(date +'%Y-%m-%dT%H:%M:%S%z')]: $*"
+    }
+
+    function warn() {
+      echo "[WARN] [$(date +'%Y-%m-%dT%H:%M:%S%z')]: $*"
+    }
+
+    function error() {
+      echo -e "\e[0;31m[ERROR][$(date +'%Y-%m-%dT%H:%M:%S%z')]:\e[0m $*" >&2
+      exit 1
+    }
+
+    # =================================================================================
+    # Argument Parsing
+    # =================================================================================
+
+    # Parse command line arguments to extract NFS path
+    # Required argument: --nfs-path <path>
+    function parse_arguments() {
+      while [[ $# -gt 0 ]]; do
+        case $1 in
+          --nfs-path)
+            NFS_PATH="$2"
+            shift 2
+            ;;
+          *)
+            error "Unknown option: $1. Usage: $0 --nfs-path <path>"
+            ;;
+        esac
+      done
+
+      if [[ -z "$NFS_PATH" ]]; then
+        error "NFS_PATH is required. Usage: $0 --nfs-path <path>"
+      fi
+
+      DIFF_DIR="${NFS_PATH}/objectstore/backup/s3/diff"
+    }
+
+    # =================================================================================
+    # Global Variables
+    # =================================================================================
+
+    NOW_EPOCH=""                           # Current epoch time for expiry calculations
+    declare -a backups=()                  # Array of backup info: start|complete|expiry|diff|name
+    declare -a sorted_backups=()           # Backups sorted by start epoch (oldest first)
+    declare -a backup_completion_epochs=() # Completion epochs for reachability checks
+
+    # =================================================================================
+    # Environment Validation
+    # =================================================================================
+
+    # Validate that required directories exist and initialize current epoch time
+    function validate_environment() {
+      info "Validating environment and initializing..."
+
+      if [[ ! -d "$DIFF_DIR" ]]; then
+        error "DIFF_DIR '$DIFF_DIR' does not exist. Exiting."
+      fi
+
+      NOW_EPOCH=$(date +%s)
+
+      info "Environment validation completed successfully"
+      info "NFS_PATH: $NFS_PATH"
+      info "DIFF_DIR: $DIFF_DIR"
+      info "VELERO_NAMESPACE: $VELERO_NAMESPACE"
+      info "NOW_EPOCH: $NOW_EPOCH"
+    }
+
+    # =================================================================================
+    # TTL Conversion Utility
+    # =================================================================================
+
+    # Converts a velero TTL string (e.g., "720h0m0s") to total seconds
+    # Supports h (hours), m (minutes), s (seconds) units
+    function ttl_to_seconds() {
+      local ttl=$1 total=0 num=0 unit
+      [[ -z "$ttl" ]] && {
+        warn "TTL parameter is empty"
+        return 1
+      }
+
+      while [[ $ttl =~ ^([0-9]+)([hms]) ]]; do
+        num=${BASH_REMATCH[1]}
+        unit=${BASH_REMATCH[2]}
+        [[ -z "$num" ]] && {
+          warn "Failed to extract number from TTL"
+          return 1
+        }
+        [[ -z "$unit" ]] && {
+          warn "Failed to extract unit from TTL"
+          return 1
+        }
+
+        case $unit in
+        h) total=$((total + num * 3600)) ;;
+        m) total=$((total + num * 60)) ;;
+        s) total=$((total + num)) ;;
+        esac
+        ttl=${ttl#"${num}${unit}"}
+      done
+      echo "$total"
+    }
+
+    # =================================================================================
+    # Backup Collection and Processing
+    # =================================================================================
+
+    # Collect all velero backups and build internal data structures
+    # Queries kubectl for backup CRs and extracts timing/TTL information
+    function collect_backups() {
+      info "Collecting backups from velero namespace: $VELERO_NAMESPACE"
+
+      local all_backups_json
+      all_backups_json=$(kubectl -n "$VELERO_NAMESPACE" get backup -o json)
+
+      if [[ -z "$all_backups_json" ]]; then
+        warn "Failed to fetch backups JSON from namespace $VELERO_NAMESPACE"
+        return 0
+      fi
+
+      local backup_count
+      backup_count=$(echo "$all_backups_json" | jq -r '.items | length')
+
+      if [[ "$backup_count" -eq 0 ]]; then
+        warn "No backups found in namespace $VELERO_NAMESPACE"
+        return 0
+      fi
+
+      info "Found $backup_count backups to process"
+
+      for ((i = 0; i < backup_count; i++)); do
+        process_single_backup_from_json "$all_backups_json" "$i"
+      done
+
+      info "Backup collection completed. Found ${#backups[@]} valid backups"
+    }
+
+    # Process a single backup from pre-fetched JSON
+    function process_single_backup_from_json() {
+      local all_backups_json="$1"
+      local index="$2"
+
+      local backup_name start_time completion_time start_epoch completion_epoch ttl ttl_seconds expiry_epoch matching_diff_epoch
+
+      backup_name=$(echo "$all_backups_json" | jq -r ".items[$index].metadata.name // empty")
+      [[ -z "$backup_name" ]] && {
+        warn "Failed to get backup name for index $index, skipping"
+        return
+      }
+
+      info "Processing backup: $backup_name"
+
+      start_time=$(echo "$all_backups_json" | jq -r ".items[$index].status.startTimestamp // empty")
+      [[ -z "$start_time" ]] && {
+        warn "Failed to get start_time for backup $backup_name, skipping"
+        return
+      }
+
+      completion_time=$(echo "$all_backups_json" | jq -r ".items[$index].status.completionTimestamp // empty")
+      [[ -z "$completion_time" ]] && {
+        info "Skipping $backup_name - not completed yet."
+        return
+      }
+
+      ttl=$(echo "$all_backups_json" | jq -r ".items[$index].spec.ttl // empty")
+      [[ -z "$ttl" ]] && {
+        warn "Failed to get TTL for backup $backup_name, skipping"
+        return
+      }
+
+      start_epoch=$(date --date="$start_time" +%s) || {
+        warn "Failed to convert start_time to epoch for backup $backup_name, skipping"
+        return
+      }
+
+      completion_epoch=$(date --date="$completion_time" +%s) || {
+        warn "Failed to convert completion_time to epoch for backup $backup_name, skipping"
+        return
+      }
+
+      ttl_seconds=$(ttl_to_seconds "$ttl") || {
+        warn "Failed to convert TTL to seconds for backup $backup_name, skipping"
+        return
+      }
+
+      expiry_epoch=$((completion_epoch + ttl_seconds))
+
+      matching_diff_epoch=$(find_matching_diff_epoch "$start_epoch" "$completion_epoch")
+
+      if [[ -z "$matching_diff_epoch" ]]; then
+        warn "No matching diff found for backup $backup_name (start: $start_epoch, complete: $completion_epoch)"
+        return
+      fi
+
+      backups+=("${start_epoch}|${completion_epoch}|${expiry_epoch}|${matching_diff_epoch}|${backup_name}")
+    }
+
+    # Find the diff directory within backup's time range
+    function find_matching_diff_epoch() {
+      local start_epoch="$1"
+      local completion_epoch="$2"
+
+      for dir in "$DIFF_DIR"/*; do
+        [[ ! -d "$dir" ]] && continue
+        local epoch_name
+        epoch_name=$(basename "$dir")
+        [[ -z "$epoch_name" ]] && continue
+
+        if [[ "$epoch_name" =~ ^[0-9]+$ ]]; then
+          if ((epoch_name >= start_epoch && epoch_name <= completion_epoch)); then
+            echo "$epoch_name"
+            return
+          fi
+        fi
+      done
+    }
+
+    # Sort all backups by start epoch
+    function sort_backups() {
+      if [[ ${#backups[@]} -eq 0 ]]; then
+        warn "No valid backups found to process. Exiting."
+        return 1
+      fi
+
+      info "Sorting ${#backups[@]} backups by start epoch..."
+      mapfile -t sorted_backups < <(printf "%s\n" "${backups[@]}" | sort -t'|' -k1n)
+
+      display_sorted_backups
+    }
+
+    # Display sorted backup list
+    function display_sorted_backups() {
+      info "Sorted backup list:"
+      for b in "${sorted_backups[@]}"; do
+        [[ -z "$b" ]] && continue
+        local start_epoch completion_epoch expiry_epoch diff_epoch backup_name
+        IFS='|' read -r start_epoch completion_epoch expiry_epoch diff_epoch backup_name <<<"$b"
+        echo "$backup_name | Start: $start_epoch | Complete: $completion_epoch | Expiry: $expiry_epoch | Diff: $diff_epoch"
+      done
+    }
+
+    # =================================================================================
+    # Cleanup Pass 1: Expired Diffs
+    # =================================================================================
+
+    # Delete diff directories for backups that have passed their TTL expiry time
+    # Processes backups in chronological order (oldest first) and stops at first valid backup
+    function cleanup_expired_diffs() {
+      info "Starting Pass 1: Delete safe expired diffs from backups"
+
+      for backup_info in "${sorted_backups[@]}"; do
+        [[ -z "$backup_info" ]] && continue
+
+        process_expired_backup "$backup_info"
+        local result=$?
+
+        if [[ $result -eq 1 ]]; then
+          break
+        fi
+      done
+
+      info "Pass 1 completed: Expired diff cleanup finished"
+    }
+
+    # Process a single backup for expired diff cleanup
+    function process_expired_backup() {
+      local backup_info="$1"
+
+      local start_epoch completion_epoch expiry_epoch diff_epoch backup_name
+      IFS='|' read -r start_epoch completion_epoch expiry_epoch diff_epoch backup_name <<<"$backup_info"
+
+      if ((NOW_EPOCH > expiry_epoch)); then
+        delete_expired_diff "$diff_epoch" "$backup_name"
+        return 0
+      else
+        info "Backup $backup_name is still valid (expires at $expiry_epoch)"
+        info "No need to check for further backups"
+        return 1
+      fi
+    }
+
+    # Delete an expired diff directory
+    function delete_expired_diff() {
+      local diff_epoch="$1"
+      local backup_name="$2"
+
+      local diff_path="${DIFF_DIR}/${diff_epoch}"
+      [[ -z "$diff_path" ]] && {
+        warn "diff_path is empty for backup $backup_name"
+        return
+      }
+
+      if [[ -d "$diff_path" ]]; then
+        info "Deleting expired and safe diff: $diff_path (from backup: $backup_name)"
+        rm -rfv "$diff_path"
+      else
+        warn "Diff already deleted or missing: $diff_path"
+      fi
+    }
+
+    # =================================================================================
+    # Cleanup Pass 2: Orphaned Diffs
+    # =================================================================================
+
+    # Delete diff directories that are not associated with any existing velero backup
+    # and are not reachable from earlier backups (unreachable = created after all backup completions)
+    function cleanup_orphaned_diffs() {
+      info "Starting Pass 2: Orphaned diffs not associated with any velero backup"
+
+      collect_backup_completion_epochs
+
+      for dir in "$DIFF_DIR"/*; do
+        [[ ! -d "$dir" ]] && continue
+        local epoch_name
+        epoch_name=$(basename "$dir")
+        [[ -z "$epoch_name" ]] && continue
+        [[ "$epoch_name" =~ ^[0-9]+$ ]] || continue
+
+        process_orphaned_diff "$epoch_name" backup_completion_epochs
+      done
+
+      info "Pass 2 completed: Orphaned diff cleanup finished"
+    }
+
+    # Collect completion epochs from all backups
+    function collect_backup_completion_epochs() {
+      for b in "${sorted_backups[@]}"; do
+        [[ -z "$b" ]] && continue
+        local completion_epoch
+        IFS='|' read -r _ completion_epoch _ _ _ <<<"$b"
+        backup_completion_epochs+=("$completion_epoch")
+      done
+    }
+
+    # Process a single orphaned diff
+    function process_orphaned_diff() {
+      local epoch_name="$1"
+
+      if is_diff_linked_to_backup "$epoch_name"; then
+        info "Diff $epoch_name is already linked to a backup, skipping"
+        return
+      fi
+
+      if is_diff_reachable "$epoch_name"; then
+        info "Orphaned diff $epoch_name is reachable from earlier backup - keeping it"
+      else
+        delete_orphaned_diff "$epoch_name"
+      fi
+    }
+
+    # Check if a diff is linked to any backup
+    function is_diff_linked_to_backup() {
+      local epoch_name="$1"
+
+      for b in "${sorted_backups[@]}"; do
+        [[ -z "$b" ]] && continue
+        local diff_epoch
+        IFS='|' read -r _ _ _ diff_epoch _ <<<"$b"
+        if [[ "$diff_epoch" == "$epoch_name" ]]; then
+          return 0
+        fi
+      done
+      return 1
+    }
+
+    # Check if a diff is reachable from earlier backups
+    function is_diff_reachable() {
+      local epoch_name="$1"
+
+      for completion_epoch in "${backup_completion_epochs[@]}"; do
+        if ((completion_epoch < epoch_name)); then
+          return 0
+        fi
+      done
+      return 1
+    }
+
+    # Delete an orphaned diff directory
+    function delete_orphaned_diff() {
+      local epoch_name="$1"
+      local diff_path="${DIFF_DIR}/${epoch_name}"
+
+      [[ -z "$diff_path" ]] && return
+
+      if [[ -d "$diff_path" ]]; then
+        info "Deleting orphaned and unreachable diff: $diff_path"
+        rm -rfv "$diff_path"
+      else
+        warn "Orphaned diff already deleted or missing: $diff_path"
+      fi
+    }
+
+    # =================================================================================
+    # Main Execution
+    # =================================================================================
+
+    # Main function orchestrates the complete cleanup workflow:
+    #   1. Parse arguments and validate environment
+    #   2. Collect and sort velero backups
+    #   3. Run Pass 1: Delete expired diffs (only if backups exist)
+    #   4. Run Pass 2: Delete orphaned diffs (always runs to clean up orphans)
+    function main() {
+      echo "========== Cleaning up NFS Object Store diff data based on expired velero backups (invoked at $(date)) =========="
+
+      parse_arguments "$@"
+      validate_environment
+      collect_backups
+
+      if ! sort_backups; then
+        warn "No backups found in velero namespace."
+        info "Skipping Pass 1 (expired diffs cleanup) - no backups to check for expiry"
+        info "Running Pass 2 (orphaned diffs cleanup) - will treat all diffs as orphaned"
+        cleanup_orphaned_diffs || true
+      else
+        cleanup_expired_diffs || true
+        cleanup_orphaned_diffs || true
+      fi
+
+      info "Cleanup complete at $(date)"
+      echo "==========================================================="
+    }
+
+    # Execute main
+    main "$@"
