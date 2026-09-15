@@ -5,7 +5,7 @@ metadata:
   name: backup-hook-cronjob
   namespace: rook-ceph
 spec:
-  schedule: "* */1 * * *"  # This schedules the job every 1 hour
+  schedule: "0 * * * *"  # This schedules the job every 1 hour, at the top of the hour
   concurrencyPolicy: Forbid  # Ensures only one instance of the job runs at a time
   jobTemplate:
     spec:
